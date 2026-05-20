@@ -42,10 +42,10 @@ export async function collectBrowserScan(
   profileId: string,
   browser: Browser
 ): Promise<BrowserScanResult> {
-  const context = browser.contexts()[0] || (await browser.newContext());
-  const page = context.pages()[0] || (await context.newPage());
-
   try {
+    const context = browser.contexts()[0] || (await browser.newContext());
+    const page = context.pages()[0] || (await context.newPage());
+
     await page.goto(config.browserScanUrl, {
       waitUntil: "domcontentloaded",
       timeout: config.timeoutMs
