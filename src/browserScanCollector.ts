@@ -1,5 +1,5 @@
-import { BrowserScanResult, BrowserScanValue, ToolConfig } from "./types.js";
-import { Browser, Page } from "playwright";
+import type { BrowserScanResult, BrowserScanValue, ToolConfig } from "./types.js";
+import type { Browser, Page } from "playwright";
 
 function runtimeValue(value: unknown): BrowserScanValue {
   return { value, source: "runtime" };
@@ -24,6 +24,7 @@ async function collectRuntimeValues(page: Page): Promise<Record<string, BrowserS
       screen_resolution: `${window.screen.width}x${window.screen.height}`,
       screen_available_resolution: `${window.screen.availWidth}x${window.screen.availHeight}`,
       color_depth: window.screen.colorDepth,
+      dpr: window.devicePixelRatio,
       device_pixel_ratio: window.devicePixelRatio
     };
   });
@@ -42,9 +43,11 @@ export async function collectBrowserScan(
   profileId: string,
   browser: Browser
 ): Promise<BrowserScanResult> {
+  let page: Page | undefined;
+
   try {
     const context = browser.contexts()[0] || (await browser.newContext());
-    const page = context.pages()[0] || (await context.newPage());
+    page = await context.newPage();
 
     await page.goto(config.browserScanUrl, {
       waitUntil: "domcontentloaded",
@@ -54,10 +57,11 @@ export async function collectBrowserScan(
     await page.waitForTimeout(3000);
 
     const rawText = await collectVisibleText(page);
+    const truncatedText = rawText.slice(0, 20000);
     const values = await collectRuntimeValues(page);
 
     values.browser_scan_raw_text = {
-      value: rawText.slice(0, 20000),
+      value: truncatedText,
       source: "dom",
       note: "BrowserScan visible text snapshot truncated to 20000 characters"
     };
@@ -65,7 +69,7 @@ export async function collectBrowserScan(
     return {
       profileId,
       values,
-      rawText,
+      rawText: truncatedText,
       status: "ok"
     };
   } catch (error) {
@@ -76,5 +80,7 @@ export async function collectBrowserScan(
       status: "failed",
       error: error instanceof Error ? error.message : String(error)
     };
+  } finally {
+    await page?.close().catch(() => undefined);
   }
 }

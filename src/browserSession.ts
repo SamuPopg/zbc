@@ -1,15 +1,47 @@
-import { chromium, Browser } from "playwright";
-import { LocalApiStartResponse } from "./types.js";
+import { chromium, type Browser } from "playwright";
+import type { LocalApiStartResponse } from "./types.js";
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export async function connectToStartedBrowser(
   started: LocalApiStartResponse
 ): Promise<Browser> {
+  let wsError: unknown;
+
   if (started.wsPuppeteer) {
-    return chromium.connectOverCDP(started.wsPuppeteer);
+    try {
+      return await chromium.connectOverCDP(started.wsPuppeteer);
+    } catch (error) {
+      wsError = error;
+    }
   }
 
   if (started.debugPort) {
-    return chromium.connectOverCDP(`http://127.0.0.1:${started.debugPort}`);
+    try {
+      return await chromium.connectOverCDP(`http://127.0.0.1:${started.debugPort}`);
+    } catch (debugPortError) {
+      if (wsError) {
+        throw new Error(
+          `profile ${started.profileId} failed to connect with wsPuppeteer: ${errorMessage(
+            wsError
+          )}; debugPort fallback failed: ${errorMessage(debugPortError)}`
+        );
+      }
+
+      throw new Error(
+        `profile ${started.profileId} failed to connect with debugPort: ${errorMessage(
+          debugPortError
+        )}`
+      );
+    }
+  }
+
+  if (wsError) {
+    throw new Error(
+      `profile ${started.profileId} failed to connect with wsPuppeteer: ${errorMessage(wsError)}`
+    );
   }
 
   throw new Error(`profile ${started.profileId} did not return debug connection info`);
