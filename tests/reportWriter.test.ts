@@ -23,8 +23,22 @@ describe("writeReports", () => {
                   ua: "Mozilla/5.0",
                   language: "evidence-pass-fail-通过-失败",
                   platform: `<script>alert("x")</script>&'`,
+                  tls:
+                    "Authorization: Bearer tls-bearer-secret password=tls-password-secret token=tls-token-secret api_key=tls-api-key-secret",
                   password: "secret-password",
-                  user_proxy_config: { password: "proxy-secret" }
+                  user_proxy_config: { password: "proxy-secret" },
+                  nested: {
+                    ApiKey: "nested-api-key-secret",
+                    proxyPassword: "nested-proxy-password-secret"
+                  },
+                  array_values: [
+                    { TOKEN: "array-token-secret" },
+                    { cookie_value: "array-cookie-secret" }
+                  ],
+                  api_key: "snake-api-key-secret",
+                  Authorization: "Bearer authorization-token-secret",
+                  launch_url:
+                    "https://example.test/login?password=query-password-secret&token=query-token-secret&api_key=query-api-key-secret"
                 },
                 randomFingerprintEnabled: false,
                 fetchStatus: "failed",
@@ -40,6 +54,10 @@ describe("writeReports", () => {
                     value: "evidence-pass-fail-通过-失败",
                     source: "runtime",
                     note: "runtime collection failed"
+                  },
+                  browser_scan_raw_text: {
+                    value: "BrowserScan text snapshot",
+                    source: "runtime"
                   }
                 }
               }
@@ -64,8 +82,37 @@ describe("writeReports", () => {
       expect(html).toContain("&amp;");
       expect(html).not.toContain("secret-password");
       expect(html).not.toContain("proxy-secret");
+      expect(html).not.toContain("nested-api-key-secret");
+      expect(html).not.toContain("nested-proxy-password-secret");
+      expect(html).not.toContain("array-token-secret");
+      expect(html).not.toContain("array-cookie-secret");
+      expect(html).not.toContain("snake-api-key-secret");
+      expect(html).not.toContain("authorization-token-secret");
+      expect(html).not.toContain("tls-bearer-secret");
+      expect(html).not.toContain("tls-password-secret");
+      expect(html).not.toContain("tls-token-secret");
+      expect(html).not.toContain("tls-api-key-secret");
+      expect(html).not.toContain("query-password-secret");
+      expect(html).not.toContain("query-token-secret");
+      expect(html).not.toContain("query-api-key-secret");
+      expect(html).toContain("[REDACTED]");
+      expect(html).toContain("BrowserScan text snapshot");
       expect(json).not.toContain("secret-password");
       expect(json).not.toContain("proxy-secret");
+      expect(json).not.toContain("nested-api-key-secret");
+      expect(json).not.toContain("nested-proxy-password-secret");
+      expect(json).not.toContain("array-token-secret");
+      expect(json).not.toContain("array-cookie-secret");
+      expect(json).not.toContain("snake-api-key-secret");
+      expect(json).not.toContain("authorization-token-secret");
+      expect(json).not.toContain("tls-bearer-secret");
+      expect(json).not.toContain("tls-password-secret");
+      expect(json).not.toContain("tls-token-secret");
+      expect(json).not.toContain("tls-api-key-secret");
+      expect(json).not.toContain("query-password-secret");
+      expect(json).not.toContain("query-token-secret");
+      expect(json).not.toContain("query-api-key-secret");
+      expect(json).toContain("[REDACTED]");
       expect(json).toContain("evidence-pass-fail-通过-失败");
       expect(result.status).toBe("error");
       expect(result.settings.fetchStatus).toBe("unavailable");

@@ -87,7 +87,8 @@ export const REPORT_FINGERPRINT_KEYS = [
   "ipchecker",
   "ip_country",
   "ip_region",
-  "ip_city"
+  "ip_city",
+  "browser_scan_raw_text"
 ] as const;
 
 export const SENSITIVE_KEYS = new Set([

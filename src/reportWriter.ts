@@ -20,6 +20,28 @@ export interface ReportOutput {
   jsonPath: string;
 }
 
+const REDACTED = "[REDACTED]";
+const EXTRA_SENSITIVE_KEYS = [
+  "apiKey",
+  "api_key",
+  "authorization",
+  "token",
+  "secret",
+  "passwd",
+  "proxyPassword",
+  "proxy_password",
+  "cookieValue",
+  "cookie_value"
+];
+
+const NORMALIZED_SENSITIVE_KEYS = new Set(
+  [...SENSITIVE_KEYS, ...EXTRA_SENSITIVE_KEYS].map(normalizeSensitiveKey)
+);
+
+function normalizeSensitiveKey(key: string): string {
+  return key.toLowerCase().replace(/[_-]/g, "");
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
     switch (char) {
@@ -39,10 +61,36 @@ function escapeHtml(value: string): string {
   });
 }
 
-function safeSettings(settings: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(settings).filter(([key]) => !SENSITIVE_KEYS.has(key))
-  );
+function sanitizeAuthText(value: string): string {
+  return value
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, `$1${REDACTED}`)
+    .replace(
+      /\b(password|token|api[_-]?key)=([^&\s"'<>]+)/gi,
+      (_match, key: string) => `${key}=${REDACTED}`
+    );
+}
+
+function sanitizeReportValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeReportValue(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        NORMALIZED_SENSITIVE_KEYS.has(normalizeSensitiveKey(key))
+          ? REDACTED
+          : sanitizeReportValue(child)
+      ])
+    );
+  }
+
+  if (typeof value === "string") {
+    return sanitizeAuthText(value);
+  }
+
+  return value;
 }
 
 function neutralizeText(value: string): string {
@@ -135,7 +183,7 @@ ${rows}
 function buildSafeJson(report: ReportData): ReportOutputData {
   const safeReport = structuredClone(report) as ReportData;
 
-  return {
+  const output: ReportOutputData = {
     ...safeReport,
     profileIds: [...safeReport.profileIds],
     results: safeReport.results.map((result) => ({
@@ -144,7 +192,7 @@ function buildSafeJson(report: ReportData): ReportOutputData {
       notes: result.notes.map((note) => neutralizeText(note)),
       settings: {
         ...result.settings,
-        settings: safeSettings(result.settings.settings),
+        settings: result.settings.settings,
         fetchStatus: neutralizeFetchStatus(result.settings.fetchStatus),
         error: neutralizeOptionalText(result.settings.error)
       },
@@ -166,6 +214,8 @@ function buildSafeJson(report: ReportData): ReportOutputData {
         : undefined
     }))
   };
+
+  return sanitizeReportValue(output) as ReportOutputData;
 }
 
 export async function writeReports(
