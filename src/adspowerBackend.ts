@@ -1,0 +1,102 @@
+import { BACKEND_PROFILE_FIELDS } from "./fingerprintFields.js";
+import type { ProfileSettings, RawProfile, ToolConfig } from "./types.js";
+
+type FetchLike = typeof fetch;
+
+interface BackendProfileListBody {
+  code?: number;
+  msg?: string;
+  data?: {
+    list?: RawProfile[];
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRandomFingerprintEnabled(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+export function flattenProfile(profile: RawProfile): ProfileSettings {
+  const fingerprintConfig = isRecord(profile.fingerprint_config)
+    ? profile.fingerprint_config
+    : {};
+
+  const settings: Record<string, unknown> = {
+    ...profile,
+    ...fingerprintConfig,
+    ipchecker: profile.ipchecker
+  };
+
+  delete settings.fingerprint_config;
+
+  return {
+    profileId: profile.id,
+    accId: typeof profile.acc_id === "string" ? profile.acc_id : undefined,
+    name: typeof profile.name === "string" ? profile.name : undefined,
+    settings,
+    randomFingerprintEnabled: isRandomFingerprintEnabled(
+      profile.switch_random_finger
+    ),
+    fetchStatus: "ok"
+  };
+}
+
+export async function fetchProfileSettings(
+  config: ToolConfig,
+  fetchImpl: FetchLike = fetch
+): Promise<ProfileSettings[]> {
+  const url = new URL(
+    `${trimTrailingSlash(config.backendBaseUrl)}/fbcc/user/get-open-user-list`
+  );
+  url.searchParams.set("_local_api", "adspower");
+  url.searchParams.set("ids", config.profileIds.join(","));
+  url.searchParams.set("page", "1");
+  url.searchParams.set(
+    "page_size",
+    String(Math.min(config.profileIds.length, 100))
+  );
+  url.searchParams.set("action", "openfb");
+  url.searchParams.set("fields", BACKEND_PROFILE_FIELDS.join(","));
+
+  const response = await fetchImpl(url, {
+    method: "GET",
+    headers: {
+      "api-key": config.apiKey,
+      "x-client-local-api-version": "2.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`backend request failed with HTTP ${response.status}`);
+  }
+
+  const body = (await response.json()) as BackendProfileListBody;
+  if (body.code !== 0) {
+    throw new Error(body.msg || `backend returned code ${String(body.code)}`);
+  }
+
+  const list = body.data?.list ?? [];
+  const byId = new Map(list.map((profile) => [profile.id, flattenProfile(profile)]));
+
+  return config.profileIds.map((profileId) => {
+    const found = byId.get(profileId);
+    if (found) {
+      return found;
+    }
+
+    return {
+      profileId,
+      settings: {},
+      randomFingerprintEnabled: false,
+      fetchStatus: "failed",
+      error: "profile not returned by backend"
+    };
+  });
+}
