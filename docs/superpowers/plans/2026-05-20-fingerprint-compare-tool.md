@@ -139,10 +139,10 @@ config.local.json
 
 ```json
 {
-  "backendBaseUrl": "https://api-ds-testing.xmp.one",
+  "backendBaseUrl": "https://api.example.test",
   "localApiBaseUrl": "http://local.adspower.com:50325",
   "browserScanUrl": "https://www.browserscan.net/",
-  "profileIds": ["i6xdjv", "i6xdjw"],
+  "profileIds": ["PROFILE_ID_1", "PROFILE_ID_2"],
   "closeAfterRun": true,
   "runMode": "sequential",
   "timeoutMs": 60000,
