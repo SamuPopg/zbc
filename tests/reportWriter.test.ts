@@ -15,8 +15,8 @@ describe("writeReports", () => {
           results: [
             {
               profileId: "PROFILE_ID_1",
-              status: "ok",
-              notes: [],
+              status: "failed",
+              notes: ["设置值获取失败", "browser scan failed"],
               settings: {
                 profileId: "PROFILE_ID_1",
                 settings: {
@@ -25,14 +25,20 @@ describe("writeReports", () => {
                   user_proxy_config: { password: "proxy-secret" }
                 },
                 randomFingerprintEnabled: false,
-                fetchStatus: "ok"
+                fetchStatus: "failed",
+                error: "backend fetch failed"
               },
               browserScan: {
                 profileId: "PROFILE_ID_1",
-                status: "ok",
+                status: "failed",
                 rawText: "BrowserScan text",
+                error: "BrowserScan 执行失败",
                 values: {
-                  ua: { value: "Mozilla/5.0", source: "runtime" }
+                  ua: {
+                    value: "Mozilla/5.0",
+                    source: "runtime",
+                    note: "runtime collection failed"
+                  }
                 }
               }
             }
@@ -51,6 +57,7 @@ describe("writeReports", () => {
       expect(html).not.toMatch(/pass|fail|通过|失败/i);
       expect(json).not.toContain("secret-password");
       expect(json).not.toContain("proxy-secret");
+      expect(json).not.toMatch(/pass|fail|通过|失败/i);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

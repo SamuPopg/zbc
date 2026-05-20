@@ -3,6 +3,18 @@ import { join } from "node:path";
 import { REPORT_FINGERPRINT_KEYS, SENSITIVE_KEYS } from "./fingerprintFields.js";
 import type { ProfileRunResult, ReportData } from "./types.js";
 
+type ReportOutputData = Omit<ReportData, "results"> & {
+  results: Array<Omit<ProfileRunResult, "status" | "settings" | "browserScan"> & {
+    status: string;
+    settings: Omit<ProfileRunResult["settings"], "fetchStatus"> & {
+      fetchStatus: string;
+    };
+    browserScan?: Omit<NonNullable<ProfileRunResult["browserScan"]>, "status"> & {
+      status: string;
+    };
+  }>;
+};
+
 export interface ReportOutput {
   htmlPath: string;
   jsonPath: string;
@@ -33,6 +45,43 @@ function safeSettings(settings: Record<string, unknown>): Record<string, unknown
   );
 }
 
+function neutralizeText(value: string): string {
+  return value
+    .replace(/pass/gi, "ok")
+    .replace(/fail/gi, "error")
+    .replace(/通过/g, "完成")
+    .replace(/失败/g, "错误");
+}
+
+function neutralizeValue(value: unknown, key?: string): unknown {
+  if (typeof value === "string") {
+    if (key === "fetchStatus" && value === "failed") {
+      return "unavailable";
+    }
+
+    if (key === "status" && value === "failed") {
+      return "error";
+    }
+
+    return neutralizeText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => neutralizeValue(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, entryValue]) => [
+        entryKey,
+        neutralizeValue(entryValue, entryKey)
+      ])
+    );
+  }
+
+  return value;
+}
+
 function formatValue(value: unknown): string {
   if (value === undefined) {
     return "未获取";
@@ -45,7 +94,7 @@ function formatValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function cellFor(result: ProfileRunResult, key: string): string {
+function cellFor(result: ReportOutputData["results"][number], key: string): string {
   const settingsValue = result.settings.settings[key];
   const browserScanValue = result.browserScan?.values[key];
   const notes = [
@@ -60,7 +109,7 @@ function cellFor(result: ProfileRunResult, key: string): string {
   ].join("");
 }
 
-function buildHtml(report: ReportData): string {
+function buildHtml(report: ReportOutputData): string {
   const columns = report.results
     .map((result) => `<th>${escapeHtml(result.profileId)}</th>`)
     .join("");
@@ -100,14 +149,14 @@ ${rows}
 `;
 }
 
-function buildSafeJson(report: ReportData): ReportData {
+function buildSafeJson(report: ReportData): ReportOutputData {
   const safeReport = structuredClone(report) as ReportData;
 
   for (const result of safeReport.results) {
     result.settings.settings = safeSettings(result.settings.settings);
   }
 
-  return safeReport;
+  return neutralizeValue(safeReport) as ReportOutputData;
 }
 
 export async function writeReports(
