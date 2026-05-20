@@ -1011,12 +1011,23 @@ import { LocalApiStartResponse } from "./types.js";
 export async function connectToStartedBrowser(
   started: LocalApiStartResponse
 ): Promise<Browser> {
+  let wsError: unknown;
+
   if (started.wsPuppeteer) {
-    return chromium.connectOverCDP(started.wsPuppeteer);
+    try {
+      return await chromium.connectOverCDP(started.wsPuppeteer);
+    } catch (error) {
+      wsError = error;
+    }
   }
 
   if (started.debugPort) {
     return chromium.connectOverCDP(`http://127.0.0.1:${started.debugPort}`);
+  }
+
+  if (wsError) {
+    const message = wsError instanceof Error ? wsError.message : String(wsError);
+    throw new Error(`profile ${started.profileId} failed to connect via ws and has no debug port: ${message}`);
   }
 
   throw new Error(`profile ${started.profileId} did not return debug connection info`);
@@ -1052,6 +1063,7 @@ async function collectRuntimeValues(page: Page): Promise<Record<string, BrowserS
       screen_resolution: `${window.screen.width}x${window.screen.height}`,
       screen_available_resolution: `${window.screen.availWidth}x${window.screen.availHeight}`,
       color_depth: window.screen.colorDepth,
+      dpr: window.devicePixelRatio,
       device_pixel_ratio: window.devicePixelRatio
     };
   });
@@ -1070,10 +1082,11 @@ export async function collectBrowserScan(
   profileId: string,
   browser: Browser
 ): Promise<BrowserScanResult> {
-  const context = browser.contexts()[0] || (await browser.newContext());
-  const page = context.pages()[0] || (await context.newPage());
+  let page: Page | undefined;
 
   try {
+    const context = browser.contexts()[0] || (await browser.newContext());
+    page = await context.newPage();
     await page.goto(config.browserScanUrl, {
       waitUntil: "domcontentloaded",
       timeout: config.timeoutMs
@@ -1082,18 +1095,18 @@ export async function collectBrowserScan(
     await page.waitForTimeout(3000);
 
     const rawText = await collectVisibleText(page);
+    const truncatedRawText = rawText.slice(0, 20000);
     const values = await collectRuntimeValues(page);
 
     values.browser_scan_raw_text = {
-      value: rawText.slice(0, 20000),
+      value: truncatedRawText,
       source: "dom",
       note: "BrowserScan visible text snapshot truncated to 20000 characters"
     };
-
     return {
       profileId,
       values,
-      rawText,
+      rawText: truncatedRawText,
       status: "ok"
     };
   } catch (error) {
@@ -1104,6 +1117,8 @@ export async function collectBrowserScan(
       status: "failed",
       error: error instanceof Error ? error.message : String(error)
     };
+  } finally {
+    await page?.close().catch(() => undefined);
   }
 }
 ```
