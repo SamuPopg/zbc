@@ -1,11 +1,26 @@
 import { loadConfigFromFile } from "./config.js";
 import { runFingerprintCompare } from "./runner.js";
+import { pathToFileURL } from "node:url";
 
-function getConfigPath(argv: string[]): string {
-  const index = argv.indexOf("--config");
-  if (index >= 0 && argv[index + 1]) {
-    return argv[index + 1];
+export function getConfigPath(argv: string[]): string {
+  const configWithValue = argv.find((item) => item.startsWith("--config="));
+  if (configWithValue) {
+    const value = configWithValue.slice("--config=".length);
+    if (!value) {
+      throw new Error("--config requires a file path");
+    }
+    return value;
   }
+
+  const index = argv.indexOf("--config");
+  if (index >= 0) {
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error("--config requires a file path");
+    }
+    return value;
+  }
+
   return "config.local.json";
 }
 
@@ -18,7 +33,9 @@ async function main(): Promise<void> {
   console.log(`JSON report: ${result.jsonPath}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
