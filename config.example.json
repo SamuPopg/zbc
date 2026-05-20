@@ -1,0 +1,10 @@
+{
+  "backendBaseUrl": "https://api-ds-testing.xmp.one",
+  "localApiBaseUrl": "http://local.adspower.com:50325",
+  "browserScanUrl": "https://www.browserscan.net/",
+  "profileIds": ["i6xdjv", "i6xdjw"],
+  "closeAfterRun": true,
+  "runMode": "sequential",
+  "timeoutMs": 60000,
+  "outputDir": "reports"
+}

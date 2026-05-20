@@ -1,0 +1,21 @@
+{
+  "name": "fingerprint-compare-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts --config config.local.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
