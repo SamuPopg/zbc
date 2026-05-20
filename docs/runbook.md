@@ -16,7 +16,7 @@
 - `browserScanUrl`
 - `profileIds`
 
-不要把 API key 写进提交文件。PowerShell 里设置：
+不要把 API key 写进提交文件。`config.local.json` 只在本地使用，不要提交；提交前确认只保留 `config.example.json`，并检查 `git status`。PowerShell 里设置：
 
 ```powershell
 $env:ADSPOWER_API_KEY="你的真实 API key"
