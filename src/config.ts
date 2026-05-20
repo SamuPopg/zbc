@@ -19,10 +19,11 @@ export function loadConfigFromObject(
   source: Record<string, unknown>,
   env: EnvLike = process.env
 ): ToolConfig {
-  const apiKey =
-    typeof source.apiKey === "string" && source.apiKey.trim() !== ""
-      ? source.apiKey.trim()
-      : env.ADSPOWER_API_KEY;
+  const sourceApiKey =
+    typeof source.apiKey === "string" ? source.apiKey.trim() : "";
+  const envApiKey =
+    typeof env.ADSPOWER_API_KEY === "string" ? env.ADSPOWER_API_KEY.trim() : "";
+  const apiKey = sourceApiKey !== "" ? sourceApiKey : envApiKey;
 
   if (!apiKey) {
     throw new Error("apiKey is required");
@@ -62,6 +63,9 @@ export function loadConfigFromObject(
 
 export async function loadConfigFromFile(path: string): Promise<ToolConfig> {
   const text = await readFile(path, "utf8");
-  const parsed = JSON.parse(text) as Record<string, unknown>;
-  return loadConfigFromObject(parsed);
+  const parsed = JSON.parse(text) as unknown;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("config file must contain a JSON object");
+  }
+  return loadConfigFromObject(parsed as Record<string, unknown>);
 }

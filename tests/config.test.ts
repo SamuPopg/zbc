@@ -1,5 +1,8 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfigFromObject } from "../src/config.js";
+import { loadConfigFromFile, loadConfigFromObject } from "../src/config.js";
 
 describe("loadConfigFromObject", () => {
   it("loads required config and reads api key from env", () => {
@@ -46,5 +49,50 @@ describe("loadConfigFromObject", () => {
         {}
       )
     ).toThrow("apiKey is required");
+  });
+
+  it("trims api key read from env", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test/",
+        localApiBaseUrl: "http://local.adspower.com:50325/",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"]
+      },
+      { ADSPOWER_API_KEY: "  secret-key  " }
+    );
+
+    expect(config.apiKey).toBe("secret-key");
+  });
+
+  it("rejects blank api key read from env", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"]
+        },
+        { ADSPOWER_API_KEY: "   " }
+      )
+    ).toThrow("apiKey is required");
+  });
+});
+
+describe("loadConfigFromFile", () => {
+  it("rejects null config file root", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "fingerprint-config-"));
+    const configPath = join(tempDir, "config.json");
+
+    try {
+      await writeFile(configPath, "null", "utf8");
+
+      await expect(loadConfigFromFile(configPath)).rejects.toThrow(
+        "config file must contain a JSON object"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
