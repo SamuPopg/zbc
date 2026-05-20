@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fetchProfileSettings, flattenProfile } from "../src/adspowerBackend.js";
+import { BACKEND_PROFILE_FIELDS } from "../src/fingerprintFields.js";
 
 describe("flattenProfile", () => {
   it("flattens fingerprint_config and keeps profile context", () => {
@@ -68,11 +69,22 @@ describe("fetchProfileSettings", () => {
     expect(result[0].fetchStatus).toBe("ok");
 
     const calledUrl = String(fetchMock.mock.calls[0][0]);
-    expect(calledUrl).toContain("/fbcc/user/get-open-user-list");
-    expect(calledUrl).toContain("_local_api=adspower");
-    expect(calledUrl).toContain("ids=PROFILE_ID_1");
+    const parsedUrl = new URL(calledUrl);
+
+    expect(parsedUrl.pathname).toBe("/fbcc/user/get-open-user-list");
+    expect(parsedUrl.searchParams.get("_local_api")).toBe("adspower");
+    expect(parsedUrl.searchParams.get("ids")).toBe("PROFILE_ID_1");
+    expect(parsedUrl.searchParams.get("page")).toBe("1");
+    expect(parsedUrl.searchParams.get("page_size")).toBe("1");
+    expect(parsedUrl.searchParams.get("action")).toBe("openfb");
+    expect(parsedUrl.searchParams.get("fields")).toBe(
+      BACKEND_PROFILE_FIELDS.join(",")
+    );
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual(
-      expect.objectContaining({ "api-key": "secret-key" })
+      expect.objectContaining({
+        "api-key": "secret-key",
+        "x-client-local-api-version": "2.0"
+      })
     );
   });
 });
