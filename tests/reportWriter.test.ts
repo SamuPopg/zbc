@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { writeReports } from "../src/reportWriter.js";
 
 describe("writeReports", () => {
-  it("writes json and html without secrets or pass/fail wording", async () => {
+  it("produces Apple-style HTML with no secrets or pass/fail wording", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
     try {
       const output = await writeReports(
@@ -19,6 +19,8 @@ describe("writeReports", () => {
               notes: ["设置值获取失败", "browser scan failed"],
               settings: {
                 profileId: "PROFILE_ID_1",
+                name: "测试环境-A",
+                accId: "ACC_001",
                 settings: {
                   ua: "Mozilla/5.0",
                   language: "evidence-pass-fail-通过-失败",
@@ -72,14 +74,33 @@ describe("writeReports", () => {
       const parsed = JSON.parse(json);
       const result = parsed.results[0];
 
+      // Title check
+      expect(html).toContain("AdsPower 指纹横向对比报告");
+
+      // Value labels
+      expect(html).toContain("设置值");
+      expect(html).toContain("BS值");
+
+      // Profile
       expect(html).toContain("PROFILE_ID_1");
+      expect(html).toContain("ACC_001");
+      expect(html).toContain("测试环境-A");
+
+      // UA value
       expect(html).toContain("Mozilla/5.0");
       expect(html).toContain("evidence-pass-fail-通过-失败");
+
+      // BrowserScan
+      expect(html).toContain("BrowserScan text snapshot");
+
+      // Script injection escaped
       expect(html).not.toContain(`<script>alert("x")</script>`);
       expect(html).toContain("&lt;script&gt;");
       expect(html).toContain("&quot;x&quot;");
       expect(html).toContain("&#39;");
       expect(html).toContain("&amp;");
+
+      // Sensitive values redacted
       expect(html).not.toContain("secret-password");
       expect(html).not.toContain("proxy-secret");
       expect(html).not.toContain("nested-api-key-secret");
@@ -96,7 +117,11 @@ describe("writeReports", () => {
       expect(html).not.toContain("query-token-secret");
       expect(html).not.toContain("query-api-key-secret");
       expect(html).toContain("[REDACTED]");
-      expect(html).toContain("BrowserScan text snapshot");
+
+      // No template literal residuals
+      expect(html).not.toContain("{escapeHtml(");
+
+      // JSON also redacted
       expect(json).not.toContain("secret-password");
       expect(json).not.toContain("proxy-secret");
       expect(json).not.toContain("nested-api-key-secret");
@@ -113,7 +138,8 @@ describe("writeReports", () => {
       expect(json).not.toContain("query-token-secret");
       expect(json).not.toContain("query-api-key-secret");
       expect(json).toContain("[REDACTED]");
-      expect(json).toContain("evidence-pass-fail-通过-失败");
+
+      // Neutralized status
       expect(result.status).toBe("error");
       expect(result.settings.fetchStatus).toBe("unavailable");
       expect(result.notes.join(" ")).not.toMatch(/pass|fail|通过|失败/i);
