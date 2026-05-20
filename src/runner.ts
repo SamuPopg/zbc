@@ -2,6 +2,7 @@ import { fetchProfileSettings } from "./adspowerBackend.js";
 import { connectToStartedBrowser } from "./browserSession.js";
 import { collectBrowserScan } from "./browserScanCollector.js";
 import { startProfile, stopProfile } from "./localApi.js";
+import { buildProbeChecks } from "./probeValidation.js";
 import { writeReports } from "./reportWriter.js";
 import type {
   BrowserScanResult,
@@ -112,6 +113,12 @@ async function runProfile(
     const started = await startProfile(config, settings.profileId);
     browser = await connectToStartedBrowser(started);
     browserScan = await collectBrowserScan(config, settings.profileId, browser);
+    if (browserScan.probe) {
+      browserScan.probe.checks = buildProbeChecks(
+        settings.settings,
+        browserScan.probe.values
+      );
+    }
     status = statusFor(settings, browserScan);
   } catch (error) {
     status = "failed";

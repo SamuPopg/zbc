@@ -1,33 +1,33 @@
 # AdsPower 指纹横向对比工具
 
-这个工具用于批量启动 AdsPower 环境，读取环境指纹设置值，打开 BrowserScan，并生成 HTML/JSON 横向对比报告。报告重点展示每个指纹项的「设置值」和「BS值」，不做通过/失败判定。
+这个工具用于批量启动 AdsPower 环境，读取环境指纹设置值，打开 BrowserScan，并生成 HTML/JSON 横向对比报告。报告主界面仍只展示每个指纹项的「设置值」和「BS值」，不做通过/失败判定。
+
+## 解决测试人员什么问题
+
+这个工具把测试人员手工打开 AdsPower 环境、逐项查看指纹配置、再去 BrowserScan 对照截图的流程，变成批量、可复查、可定位问题来源的报告。
+
+- 批量验收环境指纹是否按配置生效：一次性对比多个 profile 的 UA、时区、语言、屏幕、WebGL、Canvas、WebRTC 等字段，减少重复手工检查。
+- 明确区分问题来源：报告把「设置值」「BS值」「Probe值」分开，便于判断是配置没下发、浏览器运行时没生效、BrowserScan 没采到，还是字段本身不能直接用 JS 判断。
+- 降低误判：Canvas、Audio、WebGL Image、WebRTC 这类字段不会被粗暴写成通过/失败，而是提供中性备注和 Probe 实测值，让测试人员基于证据人工判断。
+- 留下可回溯证据：HTML 适合人工查看和转发，JSON 保留脱敏后的完整排查数据，方便回归、复盘和交给开发定位。
+
+## 数据来源
+
+报告里有三类来源：
+
+- 设置值：来自 AdsPower 后端配置；后端不可用时，会回退到 AdsPower Local API `/api/v2/browser-profile/list`。
+- BS值：来自 BrowserScan 第三方实测，优先读取 BrowserScan 首页的 `window._getComponent()` 快照。
+- Probe值：工具自己在已启动环境里执行 JS 得到的辅助实测值，只写入 JSON 和 HTML 备注，不会顶替 BS值。
+
+如果 BrowserScan 没采到某个字段，HTML 里的 BS值会保持「未获取」。Probe 值只会在备注里显示为 `Probe实测：xxx`，用于排查 AdsPower 设置是否在浏览器运行时生效。
 
 ## 功能
 
-- 从 AdsPower 后端详情接口读取环境指纹配置。
-- 通过 Local API 启动指定环境，并用 Playwright 连接已启动浏览器。
-- 打开 BrowserScan 首页采集实测值。
-- 优先读取 BrowserScan 内部 `window._getComponent()` 快照，补齐 WebRTC、Canvas、WebGL、音频、字体、Client Rects、GPU、TLS 等值。
-- 保留浏览器运行时采集作为兜底，例如 UA、语言、平台、时区、屏幕、DPR、CPU 核心数、设备内存。
-- 输出 HTML 报告和脱敏后的 JSON 报告。
-
-## 准备
-
-1. 安装依赖：
-
-   ```powershell
-   npm install
-   ```
-
-2. 启动 AdsPower 客户端，并确认 Local API 可用。
-
-3. 准备后端地址、Local API 地址、BrowserScan 地址和环境 ID。
-
-4. 设置 API key 环境变量：
-
-   ```powershell
-   $env:ADSPOWER_API_KEY="你的 API key"
-   ```
+- 批量读取环境设置值。
+- 通过 AdsPower Local API 启动指定环境，并用 Playwright 连接已启动浏览器。
+- 打开 BrowserScan 首页采集第三方实测值。
+- 执行 runtime probe，采集 UA、时区、语言、屏幕、DPR、WebGL、Canvas、Audio、ClientRects、字体、媒体设备、WebRTC ICE candidate 等辅助值。
+- 生成 HTML 报告和脱敏 JSON 报告。
 
 ## 配置
 
@@ -52,58 +52,35 @@ Copy-Item config.example.json config.local.json
 }
 ```
 
-`browserScanUrl` 建议使用 BrowserScan 首页，例如 `https://www.browserscan.net/`。首页会暴露 `_getComponent()` 快照，工具才能稳定拿到 WebRTC、Canvas、WebGL、音频、字体、TLS 等 BS 值。若配置为单项页面，例如 `/webrtc` 或 `/canvas`，部分 BS 值可能只能依赖兜底采集，报告会显示「未获取」。
+`browserScanUrl` 建议使用 BrowserScan 首页，例如 `https://www.browserscan.net/`。如果配置为 `/webrtc`、`/canvas` 等单项页面，BrowserScan 快照可能不存在，BS值会显示「未获取」。
 
 不要提交真实的 `config.local.json` 或 API key。
 
 ## 运行
 
 ```powershell
+$env:ADSPOWER_API_KEY="你的 API key"
 npm.cmd run start -- --config config.local.json
 ```
 
-输出文件生成在 `outputDir`，默认是 `reports`：
+输出文件生成到 `outputDir`：
 
 - `fingerprint-report-*.html`：人工查看的横向对比报告。
-- `fingerprint-report-*.json`：用于排查和后续自动化的脱敏数据。
+- `fingerprint-report-*.json`：脱敏后的完整排查数据，包含完整 Probe 原始值和每个字段的校验备注。
 
-## BS 值来源
+## Probe 校验
 
-BrowserScan 首页完成检测后会在页面上提供 `window._getComponent()`。工具会解码这个快照，并映射到报告字段：
+Probe 校验只使用中性状态：
 
-- `webrtc`：`stun`、`udp`。
-- `canvas`：Canvas hash。
-- `webgl`：WebGL report hash。
-- `webgl_image`：WebGL image hash。
-- `webgl_config`：Unmasked Vendor、Unmasked Renderer。
-- `audio`：Audio hash。
-- `fonts`：字体 hash、数量、前 20 个样例。
-- `client_rects`：Client Rects hash。
-- `gpu`：WebGPU hash 和 WebGPU 详情。
-- `tls`：JA3、JA4、TLS fingerprint 等 HTTP 指纹数据。
-- `ip`、`ip_country`、`ip_region`、`ip_city`、`timezone`、`language`：BrowserScan 的网络和软件检测数据。
+- `一致`：设置值和 Probe 值可以直接对齐，例如 UA、timezone、language、screen_resolution、DPR、hardware_concurrency、device_memory、do_not_track、webgl_config。
+- `需人工判断`：设置值和 Probe 值不是同一种语义，例如 canvas、webgl、webgl_image、audio、client_rects、fonts、media_devices、webrtc。
+- `无法通过 JS 校验`：TLS、出口 IP、HTTP header、服务端网络视角相关字段。
 
-如果 `_getComponent()` 不存在、未完成或解码失败，工具会保留已采集到的 runtime 值，并继续生成报告。
+`canvas=1`、`audio=1`、`webgl_image=1` 这类设置不会判断“正确 hash”，只在备注里显示 Probe hash 并标记为 `需人工判断`。
 
-## 常用检查
+## 验证
 
 ```powershell
-npm.cmd test
 npm.cmd run typecheck
+npm.cmd test
 ```
-
-Local API 连通性检查：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://local.adspower.com:50325/api/v2/browser-profile/list" -Headers @{ Authorization = "Bearer $env:ADSPOWER_API_KEY" } -ContentType "application/json" -Body '{"page":1,"page_size":1}'
-```
-
-返回 `code` 为 `0` 表示 Local API 和 API key 可用。
-
-## 排查
-
-- BS 值显示「未获取」：先确认 `browserScanUrl` 是否为 BrowserScan 首页。
-- WebRTC 显示 `disabled`：这是 BrowserScan 的实测值，表示 STUN/TURN 未拿到对应泄露 IP，不等于采集失败。
-- TLS 为空：通常是 BrowserScan 的 HTTP 指纹接口没有返回完整数据，检查页面是否完成加载和网络是否可访问。
-- 只看到 runtime 值：说明 `_getComponent()` 不存在或没有完成，检查 BrowserScan 页面是否变更、是否被广告/网络/权限问题阻塞。
-- HTML/JSON 中不会保留敏感字段，密码、token、cookie、代理密钥等会被替换为 `[REDACTED]`。

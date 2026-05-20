@@ -23,6 +23,25 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function orderedSettings(config: ToolConfig, list: RawProfile[]): ProfileSettings[] {
+  const byId = new Map(list.map((profile) => [profile.id, flattenProfile(profile)]));
+
+  return config.profileIds.map((profileId) => {
+    const found = byId.get(profileId);
+    if (found) {
+      return found;
+    }
+
+    return {
+      profileId,
+      settings: {},
+      randomFingerprintEnabled: false,
+      fetchStatus: "failed",
+      error: "profile not returned by settings source"
+    };
+  });
+}
+
 export function flattenProfile(profile: RawProfile): ProfileSettings {
   const fingerprintConfig = isRecord(profile.fingerprint_config)
     ? profile.fingerprint_config
@@ -52,6 +71,17 @@ export async function fetchProfileSettings(
   config: ToolConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<ProfileSettings[]> {
+  try {
+    return orderedSettings(config, await fetchBackendProfiles(config, fetchImpl));
+  } catch {
+    return orderedSettings(config, await fetchLocalApiProfiles(config, fetchImpl));
+  }
+}
+
+async function fetchBackendProfiles(
+  config: ToolConfig,
+  fetchImpl: FetchLike
+): Promise<RawProfile[]> {
   const url = new URL(
     `${trimTrailingSlash(config.backendBaseUrl)}/fbcc/user/get-open-user-list`
   );
@@ -82,21 +112,37 @@ export async function fetchProfileSettings(
     throw new Error(body.msg || `backend returned code ${String(body.code)}`);
   }
 
-  const list = body.data?.list ?? [];
-  const byId = new Map(list.map((profile) => [profile.id, flattenProfile(profile)]));
+  return body.data?.list ?? [];
+}
 
-  return config.profileIds.map((profileId) => {
-    const found = byId.get(profileId);
-    if (found) {
-      return found;
+async function fetchLocalApiProfiles(
+  config: ToolConfig,
+  fetchImpl: FetchLike
+): Promise<RawProfile[]> {
+  const response = await fetchImpl(
+    `${trimTrailingSlash(config.localApiBaseUrl)}/api/v2/browser-profile/list`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({
+        profile_id: config.profileIds,
+        page: 1,
+        limit: Math.min(config.profileIds.length, 100)
+      })
     }
+  );
 
-    return {
-      profileId,
-      settings: {},
-      randomFingerprintEnabled: false,
-      fetchStatus: "failed",
-      error: "profile not returned by backend"
-    };
-  });
+  if (!response.ok) {
+    throw new Error(`Local API profile list failed with HTTP ${response.status}`);
+  }
+
+  const body = (await response.json()) as BackendProfileListBody;
+  if (body.code !== 0) {
+    throw new Error(body.msg || `Local API profile list returned code ${String(body.code)}`);
+  }
+
+  return body.data?.list ?? [];
 }

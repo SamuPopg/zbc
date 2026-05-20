@@ -94,11 +94,14 @@ function sanitizeReportValue(value: unknown): unknown {
 }
 
 function neutralizeText(value: string): string {
+  const unavailableJsCheck = "__UNAVAILABLE_JS_CHECK__";
   return value
+    .replace(/无法通过 JS 校验/g, unavailableJsCheck)
     .replace(/pass/gi, "ok")
     .replace(/fail/gi, "error")
     .replace(/通过/g, "完成")
-    .replace(/失败/g, "错误");
+    .replace(/失败/g, "错误")
+    .replace(new RegExp(unavailableJsCheck, "g"), "无法通过 JS 校验");
 }
 
 function neutralizeStatus(status: ProfileRunResult["status"] | NonNullable<ProfileRunResult["browserScan"]>["status"]): string {
@@ -187,11 +190,41 @@ function renderValueBlock(
   </div>`;
 }
 
+const NOTE_VALUE_THRESHOLD = 160;
+
+function compactValue(value: unknown): string {
+  const raw = formatValue(value).replace(/\s+/g, " ").trim();
+  return raw.length > NOTE_VALUE_THRESHOLD
+    ? `${raw.slice(0, NOTE_VALUE_THRESHOLD)}…`
+    : raw;
+}
+
+function probeNotesFor(result: ReportOutputData["results"][number], key: string): string[] {
+  const probe = result.browserScan?.probe;
+  if (!probe) {
+    return [];
+  }
+
+  const notes: string[] = [];
+  const check = probe.checks?.[key];
+  const probeValue = probe.values?.[key];
+
+  if (check?.note) {
+    notes.push(check.note);
+  }
+  if (probeValue && probeValue.value !== undefined) {
+    notes.push(`Probe实测：${compactValue(probeValue.value)}`);
+  }
+
+  return notes;
+}
+
 function cellFor(result: ReportOutputData["results"][number], key: string): string {
   const settingsValue = result.settings.settings[key];
   const browserScanValue = result.browserScan?.values[key];
   const notes = [
     browserScanValue?.note,
+    ...probeNotesFor(result, key),
     ...result.notes
   ].filter((note): note is string => Boolean(note));
 
@@ -385,8 +418,8 @@ function buildHtml(report: ReportOutputData): string {
       left: 0;
       z-index: 1;
       background: var(--surface);
-      min-width: 180px;
-      max-width: 180px;
+      min-width: 120px;
+      max-width: 120px;
     }
     .compare-table thead th.sticky-col {
       z-index: 3;
@@ -412,8 +445,8 @@ function buildHtml(report: ReportOutputData): string {
 
     /* ─── fingerprint item cell ───────────────────────────────────── */
     .item-col {
-      min-width: 180px;
-      max-width: 180px;
+      min-width: 120px;
+      max-width: 120px;
     }
     .item-label {
       font-size: 16px;
@@ -605,7 +638,32 @@ function buildSafeJson(report: ReportData): ReportOutputData {
                   note: neutralizeOptionalText(value.note)
                 }
               ])
-            )
+            ),
+            probe: result.browserScan.probe
+              ? {
+                  ...result.browserScan.probe,
+                  values: Object.fromEntries(
+                    Object.entries(result.browserScan.probe.values).map(([key, value]) => [
+                      key,
+                      {
+                        ...value,
+                        note: neutralizeOptionalText(value.note)
+                      }
+                    ])
+                  ),
+                  checks: result.browserScan.probe.checks
+                    ? Object.fromEntries(
+                        Object.entries(result.browserScan.probe.checks).map(([key, value]) => [
+                          key,
+                          {
+                            ...value,
+                            note: neutralizeText(value.note)
+                          }
+                        ])
+                      )
+                    : undefined
+                }
+              : undefined
           }
         : undefined
     }))

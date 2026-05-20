@@ -41,13 +41,30 @@ export interface LocalApiStartResponse {
 
 export interface BrowserScanValue {
   value: unknown;
-  source: "dom" | "runtime" | "not_collected";
+  source: "dom" | "runtime" | "probe" | "not_collected";
   note?: string;
+}
+
+export type ProbeCheckStatus = "一致" | "需人工判断" | "无法通过 JS 校验";
+
+export interface ProbeCheck {
+  status: ProbeCheckStatus;
+  note: string;
+  settingValue?: unknown;
+  probeValue?: unknown;
+}
+
+export interface ProbeResult {
+  raw: Record<string, unknown>;
+  values: Record<string, BrowserScanValue>;
+  checks?: Record<string, ProbeCheck>;
+  error?: string;
 }
 
 export interface BrowserScanResult {
   profileId: string;
   values: Record<string, BrowserScanValue>;
+  probe?: ProbeResult;
   rawText: string;
   status: "ok" | "failed";
   error?: string;

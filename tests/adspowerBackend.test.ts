@@ -87,4 +87,70 @@ describe("fetchProfileSettings", () => {
       })
     );
   });
+
+  it("falls back to Local API profile list when backend settings are unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            list: [
+              {
+                id: "PROFILE_ID_1",
+                acc_id: "604",
+                name: "Local profile",
+                fingerprint_config: {
+                  ua: "Mozilla/5.0 Local",
+                  timezone: "Asia/Shanghai"
+                },
+                switch_random_finger: "0"
+              }
+            ]
+          }
+        })
+      } as Response);
+
+    const result = await fetchProfileSettings(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        apiKey: "secret-key",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"],
+        closeAfterRun: true,
+        runMode: "sequential",
+        timeoutMs: 60000,
+        outputDir: "reports"
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    expect(result[0]).toMatchObject({
+      profileId: "PROFILE_ID_1",
+      name: "Local profile",
+      fetchStatus: "ok"
+    });
+    expect(result[0].settings.ua).toBe("Mozilla/5.0 Local");
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      "http://local.adspower.com:50325/api/v2/browser-profile/list"
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer secret-key"
+      },
+      body: JSON.stringify({
+        profile_id: ["PROFILE_ID_1"],
+        page: 1,
+        limit: 1
+      })
+    });
+  });
 });

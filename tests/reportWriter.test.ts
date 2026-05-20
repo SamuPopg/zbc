@@ -151,4 +151,133 @@ describe("writeReports", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("keeps missing BS values empty while showing probe notes and checks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
+    try {
+      const output = await writeReports(
+        {
+          generatedAt: "2026-05-20T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_1"],
+          results: [
+            {
+              profileId: "PROFILE_ID_1",
+              status: "ok",
+              notes: [],
+              settings: {
+                profileId: "PROFILE_ID_1",
+                settings: {
+                  ua: "Mozilla/5.0",
+                  timezone: "Asia/Shanghai",
+                  webgl_config: {
+                    unmasked_vendor: "Google Inc.",
+                    unmasked_renderer: "ANGLE Renderer"
+                  },
+                  canvas: "1",
+                  tls: "0xC02C"
+                },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_1",
+                status: "ok",
+                rawText: "BrowserScan text",
+                values: {
+                  browser_scan_raw_text: {
+                    value: "BrowserScan text snapshot",
+                    source: "dom"
+                  }
+                },
+                probe: {
+                  raw: {
+                    ua: "Mozilla/5.0",
+                    timezone: "Asia/Shanghai",
+                    webgl_config: {
+                      unmaskedVendor: "Google Inc.",
+                      unmaskedRenderer: "ANGLE Renderer"
+                    },
+                    canvasHash: "probe-canvas-hash"
+                  },
+                  values: {
+                    ua: { value: "Mozilla/5.0", source: "probe" },
+                    timezone: { value: "Asia/Shanghai", source: "probe" },
+                    webgl_config: {
+                      value: {
+                        unmaskedVendor: "Google Inc.",
+                        unmaskedRenderer: "ANGLE Renderer"
+                      },
+                      source: "probe"
+                    },
+                    canvas: { value: "probe-canvas-hash", source: "probe" },
+                    tls: { value: undefined, source: "probe" }
+                  },
+                  checks: {
+                    ua: {
+                      status: "一致",
+                      note: "设置值与 Probe一致",
+                      settingValue: "Mozilla/5.0",
+                      probeValue: "Mozilla/5.0"
+                    },
+                    timezone: {
+                      status: "一致",
+                      note: "设置值与 Probe一致",
+                      settingValue: "Asia/Shanghai",
+                      probeValue: "Asia/Shanghai"
+                    },
+                    webgl_config: {
+                      status: "一致",
+                      note: "设置值与 Probe一致",
+                      settingValue: {
+                        unmasked_vendor: "Google Inc.",
+                        unmasked_renderer: "ANGLE Renderer"
+                      },
+                      probeValue: {
+                        unmaskedVendor: "Google Inc.",
+                        unmaskedRenderer: "ANGLE Renderer"
+                      }
+                    },
+                    canvas: {
+                      status: "需人工判断",
+                      note: "需人工判断：设置值与 Probe值语义不同",
+                      settingValue: "1",
+                      probeValue: "probe-canvas-hash"
+                    },
+                    tls: {
+                      status: "无法通过 JS 校验",
+                      note: "无法通过 JS 校验：该字段依赖服务端网络或 TLS 视角",
+                      settingValue: "0xC02C"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        dir
+      );
+
+      const html = await readFile(output.htmlPath, "utf8");
+      const json = await readFile(output.jsonPath, "utf8");
+      const parsed = JSON.parse(json);
+      const probe = parsed.results[0].browserScan.probe;
+
+      expect(html).toContain("BS值");
+      expect(html).toContain("未获取");
+      expect(html).not.toContain(`<span class="value-label bs">BS值</span>
+    <div class="value-box"><pre>Mozilla/5.0</pre></div>`);
+      expect(html).toContain("设置值与 Probe一致");
+      expect(html).toContain("Probe实测：Mozilla/5.0");
+      expect(html).toContain("需人工判断");
+      expect(html).toContain("Probe实测：probe-canvas-hash");
+      expect(html).toContain("无法通过 JS 校验");
+
+      expect(probe.raw.canvasHash).toBe("probe-canvas-hash");
+      expect(probe.checks.ua.note).toBe("设置值与 Probe一致");
+      expect(probe.checks.canvas.status).toBe("需人工判断");
+      expect(probe.checks.tls.status).toBe("无法通过 JS 校验");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

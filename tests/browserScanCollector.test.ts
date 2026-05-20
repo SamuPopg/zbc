@@ -30,7 +30,7 @@ function encodeBrowserScanPayload(value: unknown): string {
 }
 
 describe("collectBrowserScan", () => {
-  it("uses a dedicated page, truncates rawText, records dpr, and closes only the page", async () => {
+  it("uses a dedicated page, keeps runtime probe out of BS values, and closes only the page", async () => {
     const rawText = "x".repeat(20005);
     const existingPage = {
       goto: vi.fn()
@@ -77,7 +77,15 @@ describe("collectBrowserScan", () => {
     expect(browser.newContext).not.toHaveBeenCalled();
     expect(result.rawText).toHaveLength(20000);
     expect(result.values.browser_scan_raw_text.value).toBe(result.rawText);
-    expect(result.values.dpr).toEqual({ value: 2, source: "runtime" });
+    expect(result.values.dpr).toBeUndefined();
+    expect(result.probe?.values.dpr).toEqual({ value: 2, source: "probe" });
+    expect(result.probe?.raw).toMatchObject({
+      ua: "test ua",
+      dpr: 2
+    });
+    expect(collectionPage.evaluate).toHaveBeenCalledWith(
+      expect.stringContaining("AdsPower probe")
+    );
   });
 
   it("maps BrowserScan component snapshot values into report fingerprint fields", async () => {
@@ -179,5 +187,47 @@ describe("collectBrowserScan", () => {
     expect(result.values.ip.value).toBe("198.51.100.20");
     expect(result.values.language.value).toBe("en-US");
     expect(result.values.timezone.value).toBe("America/New_York");
+  });
+
+  it("keeps BrowserScan snapshot values when runtime probe evaluation fails", async () => {
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: {
+        canvasHash: "browser-scan-canvas-hash"
+      }
+    });
+    const collectionPage = {
+      goto: vi.fn(),
+      waitForLoadState: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      locator: vi.fn(() => ({
+        innerText: vi.fn(async () => "BrowserScan text")
+      })),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+
+        throw new Error("__name is not defined");
+      }),
+      close: vi.fn(async () => undefined)
+    };
+    const context = {
+      newPage: vi.fn(async () => collectionPage)
+    };
+    const browser = {
+      contexts: vi.fn(() => [context]),
+      newContext: vi.fn()
+    };
+
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", browser as never);
+
+    expect(result.status).toBe("ok");
+    expect(result.values.canvas).toEqual({
+      value: "browser-scan-canvas-hash",
+      source: "dom",
+      note: "BrowserScan _getComponent snapshot"
+    });
+    expect(result.probe?.error).toContain("__name is not defined");
   });
 });
