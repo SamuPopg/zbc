@@ -17,7 +17,7 @@ Relevant source paths:
 
 ## Goals
 
-- Accept a list of AdsPower environment IDs, such as `i6xdjv` and `i6xdqf`.
+- Accept a list of AdsPower environment IDs, such as `PROFILE_ID_1` and `PROFILE_ID_5`.
 - Read each environment's configured fingerprint values from AdsPower backend data.
 - Start each environment through AdsPower Local API.
 - Open the online BrowserScan site in the started environment.
@@ -60,7 +60,7 @@ The tool will use a local configuration file or environment variables. Secrets m
 
 Required configuration:
 
-- `backendBaseUrl`: AdsPower backend API base URL, for example `https://api-ds-testing.xmp.one`.
+- `backendBaseUrl`: AdsPower backend API base URL, for example `https://api.example.test`.
 - `localApiBaseUrl`: AdsPower Local API base URL, usually `http://local.adspower.com:50325`.
 - `apiKey`: AdsPower API key, loaded from local configuration or environment.
 - `browserScanUrl`: online BrowserScan URL used in daily testing.
@@ -176,7 +176,7 @@ The report must not contain pass/fail wording in the first version.
 
 Example row structure:
 
-| Fingerprint Item | env i6xdjv | env i6xdjw |
+| Fingerprint Item | env PROFILE_ID_1 | env PROFILE_ID_2 |
 | --- | --- | --- |
 | WebRTC | setting: proxy<br>BS: 1.2.3.4 | setting: disabled<br>BS: disabled |
 | Language | setting: based on IP<br>BS: en-US | setting: real<br>BS: zh-CN |

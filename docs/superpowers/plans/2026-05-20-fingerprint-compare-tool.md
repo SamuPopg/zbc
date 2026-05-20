@@ -207,15 +207,15 @@ describe("loadConfigFromObject", () => {
   it("loads required config and reads api key from env", () => {
     const config = loadConfigFromObject(
       {
-        backendBaseUrl: "https://api-ds-testing.xmp.one/",
+        backendBaseUrl: "https://api.example.test/",
         localApiBaseUrl: "http://local.adspower.com:50325/",
         browserScanUrl: "https://www.browserscan.net/",
-        profileIds: ["i6xdqf"]
+        profileIds: ["PROFILE_ID_5"]
       },
       { ADSPOWER_API_KEY: "secret-key" }
     );
 
-    expect(config.backendBaseUrl).toBe("https://api-ds-testing.xmp.one");
+    expect(config.backendBaseUrl).toBe("https://api.example.test");
     expect(config.localApiBaseUrl).toBe("http://local.adspower.com:50325");
     expect(config.apiKey).toBe("secret-key");
     expect(config.closeAfterRun).toBe(true);
@@ -226,7 +226,7 @@ describe("loadConfigFromObject", () => {
     expect(() =>
       loadConfigFromObject(
         {
-          backendBaseUrl: "https://api-ds-testing.xmp.one",
+          backendBaseUrl: "https://api.example.test",
           localApiBaseUrl: "http://local.adspower.com:50325",
           browserScanUrl: "https://www.browserscan.net/",
           profileIds: []
@@ -240,10 +240,10 @@ describe("loadConfigFromObject", () => {
     expect(() =>
       loadConfigFromObject(
         {
-          backendBaseUrl: "https://api-ds-testing.xmp.one",
+          backendBaseUrl: "https://api.example.test",
           localApiBaseUrl: "http://local.adspower.com:50325",
           browserScanUrl: "https://www.browserscan.net/",
-          profileIds: ["i6xdqf"]
+          profileIds: ["PROFILE_ID_5"]
         },
         {}
       )
@@ -465,7 +465,7 @@ import { fetchProfileSettings, flattenProfile } from "../src/adspowerBackend.js"
 describe("flattenProfile", () => {
   it("flattens fingerprint_config and keeps profile context", () => {
     const settings = flattenProfile({
-      id: "i6xdqf",
+      id: "PROFILE_ID_5",
       acc_id: "604",
       name: "w1485",
       ipchecker: "ip2location",
@@ -477,7 +477,7 @@ describe("flattenProfile", () => {
       switch_random_finger: "0"
     });
 
-    expect(settings.profileId).toBe("i6xdqf");
+    expect(settings.profileId).toBe("PROFILE_ID_5");
     expect(settings.accId).toBe("604");
     expect(settings.name).toBe("w1485");
     expect(settings.settings.ua).toBe("Mozilla/5.0");
@@ -497,7 +497,7 @@ describe("fetchProfileSettings", () => {
         data: {
           list: [
             {
-              id: "i6xdqf",
+              id: "PROFILE_ID_5",
               acc_id: "604",
               fingerprint_config: { ua: "Mozilla/5.0" },
               switch_random_finger: "0"
@@ -509,11 +509,11 @@ describe("fetchProfileSettings", () => {
 
     const result = await fetchProfileSettings(
       {
-        backendBaseUrl: "https://api-ds-testing.xmp.one",
+        backendBaseUrl: "https://api.example.test",
         localApiBaseUrl: "http://local.adspower.com:50325",
         apiKey: "secret-key",
         browserScanUrl: "https://www.browserscan.net/",
-        profileIds: ["i6xdqf"],
+        profileIds: ["PROFILE_ID_5"],
         closeAfterRun: true,
         runMode: "sequential",
         timeoutMs: 60000,
@@ -522,13 +522,13 @@ describe("fetchProfileSettings", () => {
       fetchMock
     );
 
-    expect(result[0].profileId).toBe("i6xdqf");
+    expect(result[0].profileId).toBe("PROFILE_ID_5");
     expect(result[0].fetchStatus).toBe("ok");
 
     const calledUrl = String(fetchMock.mock.calls[0][0]);
     expect(calledUrl).toContain("/fbcc/user/get-open-user-list");
     expect(calledUrl).toContain("_local_api=adspower");
-    expect(calledUrl).toContain("ids=i6xdqf");
+    expect(calledUrl).toContain("ids=PROFILE_ID_5");
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual(
       expect.objectContaining({ "api-key": "secret-key" })
     );
@@ -801,11 +801,11 @@ import { describe, expect, it, vi } from "vitest";
 import { startProfile, stopProfile } from "../src/localApi.js";
 
 const config = {
-  backendBaseUrl: "https://api-ds-testing.xmp.one",
+  backendBaseUrl: "https://api.example.test",
   localApiBaseUrl: "http://local.adspower.com:50325",
   apiKey: "secret-key",
   browserScanUrl: "https://www.browserscan.net/",
-  profileIds: ["i6xdqf"],
+  profileIds: ["PROFILE_ID_5"],
   closeAfterRun: true,
   runMode: "sequential" as const,
   timeoutMs: 60000,
@@ -826,9 +826,9 @@ describe("startProfile", () => {
       })
     })) as unknown as typeof fetch;
 
-    const result = await startProfile(config, "i6xdqf", fetchMock);
+    const result = await startProfile(config, "PROFILE_ID_5", fetchMock);
 
-    expect(result.profileId).toBe("i6xdqf");
+    expect(result.profileId).toBe("PROFILE_ID_5");
     expect(result.debugPort).toBe("53210");
     expect(result.wsPuppeteer).toContain("ws://127.0.0.1");
 
@@ -840,7 +840,7 @@ describe("startProfile", () => {
       expect.objectContaining({ Authorization: "Bearer secret-key" })
     );
     expect(fetchMock.mock.calls[0][1]?.body).toBe(
-      JSON.stringify({ profile_id: "i6xdqf" })
+      JSON.stringify({ profile_id: "PROFILE_ID_5" })
     );
   });
 });
@@ -852,13 +852,13 @@ describe("stopProfile", () => {
       json: async () => ({ code: 0, data: {} })
     })) as unknown as typeof fetch;
 
-    await stopProfile(config, "i6xdqf", fetchMock);
+    await stopProfile(config, "PROFILE_ID_5", fetchMock);
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       "http://local.adspower.com:50325/api/v2/browser-profile/stop"
     );
     expect(fetchMock.mock.calls[0][1]?.body).toBe(
-      JSON.stringify({ profile_id: "i6xdqf" })
+      JSON.stringify({ profile_id: "PROFILE_ID_5" })
     );
   });
 });
@@ -1168,14 +1168,14 @@ describe("writeReports", () => {
       const output = await writeReports(
         {
           generatedAt: "2026-05-20T00:00:00.000Z",
-          profileIds: ["i6xdqf"],
+          profileIds: ["PROFILE_ID_5"],
           results: [
             {
-              profileId: "i6xdqf",
+              profileId: "PROFILE_ID_5",
               status: "ok",
               notes: [],
               settings: {
-                profileId: "i6xdqf",
+                profileId: "PROFILE_ID_5",
                 settings: {
                   ua: "Mozilla/5.0",
                   password: "secret-password"
@@ -1184,7 +1184,7 @@ describe("writeReports", () => {
                 fetchStatus: "ok"
               },
               browserScan: {
-                profileId: "i6xdqf",
+                profileId: "PROFILE_ID_5",
                 status: "ok",
                 rawText: "BrowserScan text",
                 values: {
@@ -1200,7 +1200,7 @@ describe("writeReports", () => {
       const html = await readFile(output.htmlPath, "utf8");
       const json = await readFile(output.jsonPath, "utf8");
 
-      expect(html).toContain("i6xdqf");
+      expect(html).toContain("PROFILE_ID_5");
       expect(html).toContain("Mozilla/5.0");
       expect(html).not.toContain("secret-password");
       expect(html).not.toMatch(/pass|fail|通过|失败/i);
@@ -1391,11 +1391,11 @@ describe("buildReportData", () => {
   it("keeps one failed profile and one successful profile in the same report", () => {
     const report = buildReportData([
       {
-        profileId: "i6xdjv",
+        profileId: "PROFILE_ID_1",
         status: "failed",
         notes: ["Local API start error"],
         settings: {
-          profileId: "i6xdjv",
+          profileId: "PROFILE_ID_1",
           settings: {},
           randomFingerprintEnabled: false,
           fetchStatus: "failed",
@@ -1403,17 +1403,17 @@ describe("buildReportData", () => {
         }
       },
       {
-        profileId: "i6xdqf",
+        profileId: "PROFILE_ID_5",
         status: "ok",
         notes: [],
         settings: {
-          profileId: "i6xdqf",
+          profileId: "PROFILE_ID_5",
           settings: { ua: "Mozilla/5.0" },
           randomFingerprintEnabled: false,
           fetchStatus: "ok"
         },
         browserScan: {
-          profileId: "i6xdqf",
+          profileId: "PROFILE_ID_5",
           status: "ok",
           rawText: "",
           values: {
@@ -1423,7 +1423,7 @@ describe("buildReportData", () => {
       }
     ]);
 
-    expect(report.profileIds).toEqual(["i6xdjv", "i6xdqf"]);
+    expect(report.profileIds).toEqual(["PROFILE_ID_1", "PROFILE_ID_5"]);
     expect(report.results).toHaveLength(2);
   });
 });
@@ -1620,10 +1620,10 @@ git commit -m "feat: orchestrate fingerprint comparison run"
 
 ```json
 {
-  "backendBaseUrl": "https://api-ds-testing.xmp.one",
+  "backendBaseUrl": "https://api.example.test",
   "localApiBaseUrl": "http://local.adspower.com:50325",
   "browserScanUrl": "https://www.browserscan.net/",
-  "profileIds": ["i6xdqf"],
+  "profileIds": ["PROFILE_ID_5"],
   "closeAfterRun": true,
   "runMode": "sequential",
   "timeoutMs": 60000,
@@ -1686,7 +1686,7 @@ JSON report: reports\fingerprint-report-...
 
 1. 启动 AdsPower 客户端。
 2. 确认 Local API 地址是 `http://local.adspower.com:50325`。
-3. 准备后端地址，例如 `https://api-ds-testing.xmp.one`。
+3. 准备后端地址，例如 `https://api.example.test`。
 4. 准备要检测的环境 ID。
 
 ## 配置
