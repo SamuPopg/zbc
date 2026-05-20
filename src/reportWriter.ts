@@ -53,33 +53,16 @@ function neutralizeText(value: string): string {
     .replace(/失败/g, "错误");
 }
 
-function neutralizeValue(value: unknown, key?: string): unknown {
-  if (typeof value === "string") {
-    if (key === "fetchStatus" && value === "failed") {
-      return "unavailable";
-    }
+function neutralizeStatus(status: ProfileRunResult["status"] | NonNullable<ProfileRunResult["browserScan"]>["status"]): string {
+  return status === "failed" ? "error" : status;
+}
 
-    if (key === "status" && value === "failed") {
-      return "error";
-    }
+function neutralizeFetchStatus(status: ProfileRunResult["settings"]["fetchStatus"]): string {
+  return status === "failed" ? "unavailable" : status;
+}
 
-    return neutralizeText(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => neutralizeValue(item));
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([entryKey, entryValue]) => [
-        entryKey,
-        neutralizeValue(entryValue, entryKey)
-      ])
-    );
-  }
-
-  return value;
+function neutralizeOptionalText(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : neutralizeText(value);
 }
 
 function formatValue(value: unknown): string {
@@ -152,11 +135,37 @@ ${rows}
 function buildSafeJson(report: ReportData): ReportOutputData {
   const safeReport = structuredClone(report) as ReportData;
 
-  for (const result of safeReport.results) {
-    result.settings.settings = safeSettings(result.settings.settings);
-  }
-
-  return neutralizeValue(safeReport) as ReportOutputData;
+  return {
+    ...safeReport,
+    profileIds: [...safeReport.profileIds],
+    results: safeReport.results.map((result) => ({
+      ...result,
+      status: neutralizeStatus(result.status),
+      notes: result.notes.map((note) => neutralizeText(note)),
+      settings: {
+        ...result.settings,
+        settings: safeSettings(result.settings.settings),
+        fetchStatus: neutralizeFetchStatus(result.settings.fetchStatus),
+        error: neutralizeOptionalText(result.settings.error)
+      },
+      browserScan: result.browserScan
+        ? {
+            ...result.browserScan,
+            status: neutralizeStatus(result.browserScan.status),
+            error: neutralizeOptionalText(result.browserScan.error),
+            values: Object.fromEntries(
+              Object.entries(result.browserScan.values).map(([key, value]) => [
+                key,
+                {
+                  ...value,
+                  note: neutralizeOptionalText(value.note)
+                }
+              ])
+            )
+          }
+        : undefined
+    }))
+  };
 }
 
 export async function writeReports(

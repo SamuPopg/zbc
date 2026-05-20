@@ -21,6 +21,7 @@ describe("writeReports", () => {
                 profileId: "PROFILE_ID_1",
                 settings: {
                   ua: "Mozilla/5.0",
+                  platform: `<script>alert("x")</script>&'`,
                   password: "secret-password",
                   user_proxy_config: { password: "proxy-secret" }
                 },
@@ -52,6 +53,10 @@ describe("writeReports", () => {
 
       expect(html).toContain("PROFILE_ID_1");
       expect(html).toContain("Mozilla/5.0");
+      expect(html).not.toContain(`<script>alert("x")</script>`);
+      expect(html).toContain("&lt;script&gt;");
+      expect(html).toContain("&quot;x&quot;");
+      expect(html).toContain("&#39;");
       expect(html).not.toContain("secret-password");
       expect(html).not.toContain("proxy-secret");
       expect(html).not.toMatch(/pass|fail|通过|失败/i);
