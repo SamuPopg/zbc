@@ -76,7 +76,11 @@ Probe 校验只使用中性状态：
 - `需人工判断`：设置值和 Probe 值不是同一种语义，例如 canvas、webgl、webgl_image、audio、client_rects、fonts、media_devices、webrtc。
 - `无法通过 JS 校验`：TLS、出口 IP、HTTP header、服务端网络视角相关字段。
 
-`canvas=1`、`audio=1`、`webgl_image=1` 这类设置不会判断“正确 hash”，只在备注里显示 Probe hash 并标记为 `需人工判断`。
+`canvas=1`、`audio=1`、`webgl_image=1` 这类设置不会判断”正确 hash”，只在备注里显示 Probe hash 并标记为 `需人工判断`。
+
+## 只改代理或 WebGL 后，BS 值为什么会变化
+
+同一浏览器环境下，只改了代理信息或 WebGL 元数据配置，BrowserScan 的 webgl、Client Rects、经度、纬度、GPU 等 BS 值发生变化，通常是符合采集原理的正常现象，不是环境配置失败。详细解释和排查方式见 [runbook](docs/runbook.md#为什么只改代理或-webgl-后部分-bs-值会变化)。
 
 ## 验证
 

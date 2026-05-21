@@ -128,6 +128,50 @@ TLS 来自 BrowserScan 的 HTTP 指纹检测结果。Probe 无法通过 JS 直�
 
 报告写入前会对密码、token、cookie、代理密钥、Authorization、API key 等值脱敏为 `[REDACTED]`。
 
+## 为什么只改代理或 WebGL 后，部分 BS 值会变化
+
+### 总体结论
+
+- BS值是 BrowserScan 第三方页面在当前浏览器运行环境中实时计算出来的结果。
+- 有些 BS 指纹项不是单纯等于 AdsPower 的某个设置值，而是由代理出口、浏览器渲染管线、图形接口、DOM 布局测量、WebGL/WebGPU 能力等多个因素共同计算出来。
+- 所以，在只改代理信息或 WebGL 元数据后，部分 BS 值变化是正常现象。
+- 这些变化应该结合「设置值、BS值、Probe实测、备注」一起判断，不要简单当成通过/失败。
+
+### 逐项解释
+
+#### 1. 经度、纬度
+
+经度、纬度不是浏览器本地配置直接决定的。BrowserScan 通常根据出口 IP 的地理位置数据库返回 country、region、city、latitude、longitude、timezone 等信息。因此只要代理出口 IP 变了，经度和纬度变化就是预期现象。这类字段应该归因到代理/IP 地理位置，而不是 WebGL 或浏览器硬件指纹。
+
+> 参考源码：`mix_scan/src/composables/useIP.ts`，其中 `ip_data` 包含 city、country、region、latitude、longitude、timezone 等字段。
+
+#### 2. WebGL
+
+BrowserScan 的 webgl BS值通常不是单个 vendor 或 renderer 字符串，而是对一整组 WebGL 检测结果做 hash。这组检测结果包含 UNMASKED_VENDOR_WEBGL、UNMASKED_RENDERER_WEBGL，以及 WebGL 参数、扩展、渲染能力等。因此修改 AdsPower 的 webgl_config，例如 vendor / renderer，导致 BrowserScan 的 webgl hash 变化，是正常且预期的。判断时应优先看 webgl_config 的设置值、BS 展示值、Probe 读取到的 UNMASKED_VENDOR_WEBGL / UNMASKED_RENDERER_WEBGL 是否方向一致，而不是只盯 hash 是否变化。
+
+> 参考源码：`mix_scan/src/utils/sources/webgl.ts`（读取 UNMASKED_VENDOR_WEBGL 和 UNMASKED_RENDERER_WEBGL）、`mix_scan/src/components/index/hardware.vue`（webGLReportHash 对 webgl.value JSON 序列化后做 SHA1）。
+
+#### 3. Client Rects
+
+Client Rects 来自浏览器对 DOM 元素布局结果的测量，例如 `getClientRects()`。它受字体、DPR、缩放、渲染管线、图形环境、CSS transform、浏览器版本、反指纹噪声等影响。Client Rects 不是直接依赖 WebGL 元数据，但它对渲染环境非常敏感。如果只改 WebGL 后 Client Rects 也发生变化，不能直接说明 WebGL 影响了 Client Rects；更准确的说法是：BrowserScan 的 Client Rects 采集结果可能受渲染环境、噪声策略或测量时机影响。如果工具里的 Probe Client Rects 稳定，但 BS 的 Client Rects 变化，应标记为「需人工判断」，不要直接判失败。
+
+> 参考源码：`mix_scan/src/utils/sources/clientRect.ts`（创建 DOM 元素并读取 `getClientRects()[0].toJSON()`）、`mix_scan/src/components/index/hardware.vue`（clientRectHash 对 clientRect.value 做 SHA1）。
+
+#### 4. GPU
+
+BrowserScan 里的 GPU 项不一定等同于 WebGL renderer。它可能来自 WebGPU、GPU adapter、WGSL language features、limits/features 等信息的组合 hash。因此 GPU BS值变化不一定代表真实显卡变了，也可能是 WebGPU 返回对象、特性数组顺序、浏览器图形后端、WebGL/WebGPU 适配策略变化导致。如果只看到 GPU hash 变化，应继续查看 raw/probe 里的 WebGPU 或 GPU 相关原始信息，不要仅凭 hash 判失败。
+
+> 参考源码：`mix_scan/src/utils/sources/webgpu.ts`（采集 navigator.gpu、adapter、features、limits、wgslLanguageFeatures 等）、`mix_scan/src/components/index/hardware.vue`（webGPUHash 对 webGPU.value JSON 序列化后做 SHA1）。
+
+### 建议的排查方式
+
+- 如果要判断代理影响，只改代理，WebGL 配置保持不变，连续跑两次报告。
+- 如果要判断 WebGL 影响，只改 WebGL 元数据，代理保持不变，连续跑两次报告。
+- 如果要判断采集稳定性，完全不改任何配置，连续跑两次报告。
+- 对经度、纬度、timezone、language 这类字段，优先检查代理出口 IP 和 IP 地理库结果。
+- 对 webgl、gpu、client_rects 这类 hash 字段，不要只看 hash 是否变化，要结合 BrowserScan 原始值、Probe 实测值和备注判断。
+- 结论文案要使用「正常/可解释/需人工判断/建议复测」这类中性说法，不要写成强通过或强失败。
+
 ## 验证命令
 
 ```powershell
