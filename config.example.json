@@ -6,5 +6,6 @@
   "closeAfterRun": true,
   "runMode": "sequential",
   "timeoutMs": 60000,
-  "outputDir": "reports"
+  "outputDir": "reports",
+  "stabilityRuns": 1
 }

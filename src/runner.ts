@@ -4,6 +4,7 @@ import { collectBrowserScan } from "./browserScanCollector.js";
 import { startProfile, stopProfile } from "./localApi.js";
 import { buildProbeChecks } from "./probeValidation.js";
 import { writeReports } from "./reportWriter.js";
+import { buildStabilityFields } from "./stability.js";
 import type {
   BrowserScanResult,
   ProfileRunResult,
@@ -100,6 +101,7 @@ async function runProfile(
   let browser: Browser | undefined;
   let browserScan: BrowserScanResult | undefined;
   let status: ProfileRunResult["status"] = "failed";
+  const stabilityRuns = config.stabilityRuns ?? 1;
 
   if (settings.fetchStatus === "failed") {
     notes.push(`设置值不可用：${settings.error ?? "unknown error"}`);
@@ -112,29 +114,53 @@ async function runProfile(
   try {
     const started = await startProfile(config, settings.profileId);
     browser = await connectToStartedBrowser(started);
-    browserScan = await collectBrowserScan(config, settings.profileId, browser);
-    if (browserScan.probe) {
-      browserScan.probe.checks = buildProbeChecks(
-        settings.settings,
-        browserScan.probe.values
-      );
+
+    const browserScans: BrowserScanResult[] = [];
+    for (let i = 0; i < stabilityRuns; i++) {
+      const scan = await collectBrowserScan(config, settings.profileId, browser);
+      if (scan.probe) {
+        scan.probe.checks = buildProbeChecks(settings.settings, scan.probe.values);
+      }
+      browserScans.push(scan);
     }
+
+    browserScan = browserScans[0];
     status = statusFor(settings, browserScan);
+
+    const result: ProfileRunResult = {
+      profileId: settings.profileId,
+      status,
+      notes,
+      settings,
+      browserScan
+    };
+
+    if (stabilityRuns > 1) {
+      result.stability = {
+        runCount: stabilityRuns,
+        runs: browserScans.map((bs, index) => ({
+          runIndex: index + 1,
+          browserScan: bs
+        })),
+        fields: buildStabilityFields(browserScans)
+      };
+    }
+
+    return result;
   } catch (error) {
     status = "failed";
     notes.push(errorMessage(error));
+    return {
+      profileId: settings.profileId,
+      status,
+      notes,
+      settings,
+      browserScan
+    };
   } finally {
     await closeBrowserIfNeeded(config, browser, notes);
     await stopProfileIfNeeded(config, settings.profileId, notes);
   }
-
-  return {
-    profileId: settings.profileId,
-    status,
-    notes,
-    settings,
-    browserScan
-  };
 }
 
 export async function runFingerprintCompare(

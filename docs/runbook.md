@@ -172,6 +172,44 @@ BrowserScan 里的 GPU 项不一定等同于 WebGL renderer。它可能来自 We
 - 对 webgl、gpu、client_rects 这类 hash 字段，不要只看 hash 是否变化，要结合 BrowserScan 原始值、Probe 实测值和备注判断。
 - 结论文案要使用「正常/可解释/需人工判断/建议复测」这类中性说法，不要写成强通过或强失败。
 
+## 稳定性复测模式
+
+设置 `stabilityRuns` 为 2-5 时，工具会在同一个已启动 AdsPower 环境中连续采集 BrowserScan 多次，用于观察同配置下哪些字段稳定、哪些字段有波动。
+
+### 行为说明
+
+- Profile 只启动一次，Browser 只连接一次，然后连续采集 N 轮。
+- `browserScan` 始终是第一轮采集结果，HTML 报告和现有 JSON 消费者行为不变。
+- `stability.runs` 保存全部 N 轮次的 browserScan 数据。
+- `stability.fields` 是字段波动摘要，status 为 `unchanged`、`changed` 或 `not_collected`。
+- `changed` 不是失败，只表示多轮采到的值不同，需结合设置值、BS值、Probe、componentSnapshot 判断。
+- `browser_scan_raw_text` 不纳入 `stability.fields`，避免 JSON 变大且无意义。
+- 不自动修改代理、不自动改 WebGL、不编辑 AdsPower profile。
+
+### 字段状态说明
+
+- `unchanged`：该字段在所有轮次中采集到的非空值相同。
+- `changed`：该字段在多轮中采集到的非空值不完全相同。
+- `not_collected`：该字段在所有轮次中都没有采集到有效值。
+
+### JSON 新增字段
+
+```json
+{
+  "stability": {
+    "runCount": 2,
+    "runs": [
+      { "runIndex": 1, "browserScan": { ...第一轮完整结果 } },
+      { "runIndex": 2, "browserScan": { ...第二轮完整结果 } }
+    ],
+    "fields": {
+      "ua": { "status": "unchanged", "samples": [...], "uniqueValues": [...] },
+      "webgl": { "status": "changed", "samples": [...], "uniqueValues": [...] }
+    }
+  }
+}
+```
+
 ## 验证命令
 
 ```powershell

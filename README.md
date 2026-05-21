@@ -48,11 +48,14 @@ Copy-Item config.example.json config.local.json
   "closeAfterRun": true,
   "runMode": "sequential",
   "timeoutMs": 60000,
-  "outputDir": "reports"
+  "outputDir": "reports",
+  "stabilityRuns": 1
 }
 ```
 
 `browserScanUrl` 建议使用 BrowserScan 首页，例如 `https://www.browserscan.net/`。如果配置为 `/webrtc`、`/canvas` 等单项页面，BrowserScan 快照可能不存在，BS值会显示「未获取」。
+
+`stabilityRuns` 可设置为 1-5，默认 1。大于 1 时，工具会在同一个已启动 AdsPower 环境中连续采集 BrowserScan 多次。HTML 仍展示第一轮的「设置值 / BS值 / 备注」；JSON 会额外写入 `stability.runs` 和 `stability.fields`，用于查看同配置下哪些 BrowserScan 字段 unchanged、changed 或 not_collected。
 
 不要提交真实的 `config.local.json` 或 API key。
 

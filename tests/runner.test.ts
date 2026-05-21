@@ -42,7 +42,8 @@ const config: ToolConfig = {
   closeAfterRun: true,
   runMode: "sequential",
   timeoutMs: 60000,
-  outputDir: "reports"
+  outputDir: "reports",
+  stabilityRuns: 1
 };
 
 const settings: ProfileSettings[] = config.profileIds.map((profileId) => ({
@@ -184,5 +185,60 @@ describe("runFingerprintCompare", () => {
     expect(firstBrowser.close).not.toHaveBeenCalled();
     expect(secondBrowser.close).not.toHaveBeenCalled();
     expect(stopProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("collects BrowserScan multiple times for stability mode without restarting profile", async () => {
+    const stabilityConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 2
+    };
+
+    const stabilitySettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-stable" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
+
+    collectBrowserScanMock
+      .mockResolvedValueOnce({
+        profileId: "PROFILE_ID_1",
+        status: "ok",
+        rawText: "",
+        values: {
+          ua: { value: "ua-first", source: "runtime" },
+          webgl: { value: "hash-a", source: "runtime" }
+        }
+      })
+      .mockResolvedValueOnce({
+        profileId: "PROFILE_ID_1",
+        status: "ok",
+        rawText: "",
+        values: {
+          ua: { value: "ua-first", source: "runtime" },
+          webgl: { value: "hash-b", source: "runtime" }
+        }
+      });
+
+    const result = await runFingerprintCompare(stabilityConfig);
+
+    expect(startProfileMock).toHaveBeenCalledTimes(1);
+    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(1);
+    expect(collectBrowserScanMock).toHaveBeenCalledTimes(2);
+    expect(stopProfileMock).toHaveBeenCalledTimes(1);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.browserScan?.values.ua?.value).toBe("ua-first");
+    expect(profileResult.stability).toBeDefined();
+    expect(profileResult.stability!.runCount).toBe(2);
+    expect(profileResult.stability!.runs).toHaveLength(2);
+    expect(profileResult.stability!.runs[0].runIndex).toBe(1);
+    expect(profileResult.stability!.runs[1].runIndex).toBe(2);
+    expect(profileResult.stability!.fields.ua.status).toBe("unchanged");
+    expect(profileResult.stability!.fields.webgl.status).toBe("changed");
   });
 });

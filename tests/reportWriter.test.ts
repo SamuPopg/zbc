@@ -396,4 +396,139 @@ describe("writeReports", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("stability data appears in JSON but not in HTML", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
+    try {
+      const output = await writeReports(
+        {
+          generatedAt: "2026-05-21T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_1"],
+          results: [
+            {
+              profileId: "PROFILE_ID_1",
+              status: "ok",
+              notes: [],
+              settings: {
+                profileId: "PROFILE_ID_1",
+                settings: { ua: "Mozilla/5.0" },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_1",
+                status: "ok",
+                rawText: "BrowserScan raw",
+                values: {
+                  ua: { value: "Mozilla/5.0", source: "runtime" },
+                  webgl: { value: "webgl-hash-first", source: "runtime" }
+                },
+                componentSnapshot: {
+                  allComplete: true,
+                  software: {
+                    token: "SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML"
+                  }
+                }
+              },
+              stability: {
+                runCount: 2,
+                runs: [
+                  {
+                    runIndex: 1,
+                    browserScan: {
+                      profileId: "PROFILE_ID_1",
+                      status: "ok",
+                      rawText: "BrowserScan raw",
+                      values: {
+                        ua: { value: "Mozilla/5.0", source: "runtime" },
+                        webgl: { value: "webgl-hash-first", source: "runtime" }
+                      }
+                    }
+                  },
+                  {
+                    runIndex: 2,
+                    browserScan: {
+                      profileId: "PROFILE_ID_1",
+                      status: "ok",
+                      rawText: "BrowserScan raw 2",
+                      values: {
+                        ua: { value: "Mozilla/5.0", source: "runtime" },
+                        webgl: { value: "webgl-hash-second", source: "runtime" },
+                        second_run_only_key: {
+                          value: "SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML",
+                          source: "runtime"
+                        }
+                      },
+                      componentSnapshot: {
+                        allComplete: true,
+                        software: {
+                          token: "SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML"
+                        }
+                      }
+                    }
+                  }
+                ],
+                fields: {
+                  ua: {
+                    status: "unchanged",
+                    samples: [
+                      { runIndex: 1, value: "Mozilla/5.0", source: "runtime" },
+                      { runIndex: 2, value: "Mozilla/5.0", source: "runtime" }
+                    ],
+                    uniqueValues: ["Mozilla/5.0"]
+                  },
+                  webgl: {
+                    status: "changed",
+                    samples: [
+                      { runIndex: 1, value: "webgl-hash-first", source: "runtime" },
+                      { runIndex: 2, value: "webgl-hash-second", source: "runtime" }
+                    ],
+                    uniqueValues: ["webgl-hash-first", "webgl-hash-second"]
+                  },
+                  second_run_only_key: {
+                    status: "changed",
+                    samples: [
+                      { runIndex: 1, value: undefined, source: "not_collected" },
+                      { runIndex: 2, value: "SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML", source: "runtime" }
+                    ],
+                    uniqueValues: ["SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML"]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        dir
+      );
+
+      const html = await readFile(output.htmlPath, "utf8");
+      const json = await readFile(output.jsonPath, "utf8");
+      const parsed = JSON.parse(json);
+      const result = parsed.results[0];
+
+      // JSON contains stability data
+      expect(result.stability.runCount).toBe(2);
+      expect(result.stability.runs).toHaveLength(2);
+      expect(result.stability.fields.ua.status).toBe("unchanged");
+      expect(result.stability.fields.webgl.status).toBe("changed");
+
+      // Second run unique value appears in JSON (not sensitive, so not redacted)
+      expect(json).toContain("webgl-hash-second");
+      expect(json).toContain("SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML");
+
+      // HTML does NOT contain stability-related strings
+      expect(html).not.toContain("stability");
+      expect(html).not.toContain("unchanged");
+      expect(html).not.toContain("changed");
+      expect(html).not.toContain("not_collected");
+      expect(html).not.toContain("SECOND_RUN_ONLY_HASH_SHOULD_NOT_BE_IN_HTML");
+      expect(html).not.toContain("webgl-hash-second");
+      expect(html).not.toContain("second_run_only_key");
+
+      // Sensitive field from componentSnapshot in second run is redacted in JSON
+      expect(result.stability.runs[1].browserScan.componentSnapshot?.software?.token).toBe("[REDACTED]");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

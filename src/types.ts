@@ -1,5 +1,30 @@
 export type RunMode = "sequential";
 
+export type StabilityFieldStatus = "unchanged" | "changed" | "not_collected";
+
+export interface StabilityFieldSample {
+  runIndex: number;
+  value?: unknown;
+  source?: BrowserScanValue["source"];
+}
+
+export interface StabilityFieldSummary {
+  status: StabilityFieldStatus;
+  samples: StabilityFieldSample[];
+  uniqueValues: unknown[];
+}
+
+export interface BrowserScanStabilityRun {
+  runIndex: number;
+  browserScan: BrowserScanResult;
+}
+
+export interface BrowserScanStability {
+  runCount: number;
+  runs: BrowserScanStabilityRun[];
+  fields: Record<string, StabilityFieldSummary>;
+}
+
 export interface ToolConfig {
   backendBaseUrl: string;
   localApiBaseUrl: string;
@@ -10,6 +35,7 @@ export interface ToolConfig {
   runMode: RunMode;
   timeoutMs: number;
   outputDir: string;
+  stabilityRuns: number;
 }
 
 export interface RawProfile {
@@ -87,6 +113,7 @@ export interface ProfileRunResult {
   profileId: string;
   settings: ProfileSettings;
   browserScan?: BrowserScanResult;
+  stability?: BrowserScanStability;
   status: "ok" | "partial" | "failed";
   notes: string[];
 }

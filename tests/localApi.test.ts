@@ -12,7 +12,8 @@ const config = {
   closeAfterRun: true,
   runMode: "sequential" as const,
   timeoutMs: 60000,
-  outputDir: "reports"
+  outputDir: "reports",
+  stabilityRuns: 1
 };
 
 describe("startProfile", () => {

@@ -21,6 +21,7 @@ describe("loadConfigFromObject", () => {
     expect(config.apiKey).toBe("secret-key");
     expect(config.closeAfterRun).toBe(true);
     expect(config.runMode).toBe("sequential");
+    expect(config.stabilityRuns).toBe(1);
   });
 
   it("rejects empty profile id list", () => {
@@ -77,6 +78,78 @@ describe("loadConfigFromObject", () => {
         { ADSPOWER_API_KEY: "   " }
       )
     ).toThrow("apiKey is required");
+  });
+
+  it("defaults stabilityRuns to 1 when not configured", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"]
+      },
+      { ADSPOWER_API_KEY: "secret-key" }
+    );
+    expect(config.stabilityRuns).toBe(1);
+  });
+
+  it("accepts stabilityRuns: 2", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"],
+        stabilityRuns: 2
+      },
+      { ADSPOWER_API_KEY: "secret-key" }
+    );
+    expect(config.stabilityRuns).toBe(2);
+  });
+
+  it("rejects stabilityRuns: 0", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"],
+          stabilityRuns: 0
+        },
+        { ADSPOWER_API_KEY: "secret-key" }
+      )
+    ).toThrow("stabilityRuns must be an integer between 1 and 5");
+  });
+
+  it("rejects stabilityRuns: 6", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"],
+          stabilityRuns: 6
+        },
+        { ADSPOWER_API_KEY: "secret-key" }
+      )
+    ).toThrow("stabilityRuns must be an integer between 1 and 5");
+  });
+
+  it("rejects stabilityRuns: 1.5", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"],
+          stabilityRuns: 1.5
+        },
+        { ADSPOWER_API_KEY: "secret-key" }
+      )
+    ).toThrow("stabilityRuns must be an integer between 1 and 5");
   });
 });
 

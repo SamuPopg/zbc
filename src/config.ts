@@ -7,6 +7,16 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function parseStabilityRuns(raw: unknown): number {
+  if (raw === undefined) {
+    return 1;
+  }
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 5) {
+    throw new Error("stabilityRuns must be an integer between 1 and 5");
+  }
+  return raw;
+}
+
 function requireString(source: Record<string, unknown>, key: string): string {
   const value = source[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -57,7 +67,8 @@ export function loadConfigFromObject(
     outputDir:
       typeof source.outputDir === "string" && source.outputDir.trim() !== ""
         ? source.outputDir.trim()
-        : "reports"
+        : "reports",
+    stabilityRuns: parseStabilityRuns(source.stabilityRuns)
   };
 }
 
