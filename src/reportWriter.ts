@@ -3,15 +3,55 @@ import { join } from "node:path";
 import { REPORT_FINGERPRINT_KEYS, SENSITIVE_KEYS } from "./fingerprintFields.js";
 import type { ProfileRunResult, ReportData } from "./types.js";
 
-type ReportOutputData = Omit<ReportData, "results"> & {
-  results: Array<Omit<ProfileRunResult, "status" | "settings" | "browserScan"> & {
+type ReportOutputData = {
+  generatedAt: string;
+  profileIds: string[];
+  results: Array<{
+    profileId: string;
     status: string;
-    settings: Omit<ProfileRunResult["settings"], "fetchStatus"> & {
+    notes: string[];
+    settings: {
+      profileId: string;
+      name?: string;
+      accId?: string;
+      settings: Record<string, unknown>;
+      randomFingerprintEnabled: boolean;
       fetchStatus: string;
+      error?: string;
     };
-    browserScan?: Omit<NonNullable<ProfileRunResult["browserScan"]>, "status"> & {
+    browserScan?: {
       status: string;
+      error?: string;
+      rawText: string;
+      values: Record<string, { value: unknown; source: string; note?: string }>;
+      componentSnapshot?: Record<string, unknown>;
+      probe?: {
+        raw: Record<string, unknown>;
+        values: Record<string, { value: unknown; source: string; note?: string }>;
+        checks?: Record<string, { status: string; note: string; settingValue?: unknown; probeValue?: unknown }>;
+        error?: string;
+      };
+      [key: string]: unknown;
     };
+    stability?: {
+      runCount: number;
+      runs: Array<{
+        runIndex: number;
+        browserScan: {
+          status: string;
+          rawText: string;
+          values: Record<string, { value: unknown; source: string; note?: string }>;
+          componentSnapshot?: Record<string, unknown>;
+          [key: string]: unknown;
+        };
+      }>;
+      fields: Record<string, {
+        status: string;
+        samples: Array<{ runIndex: number; value?: unknown; source?: string }>;
+        uniqueValues: unknown[];
+      }>;
+    };
+    [key: string]: unknown;
   }>;
 };
 
@@ -110,6 +150,50 @@ function neutralizeStatus(status: ProfileRunResult["status"] | NonNullable<Profi
 
 function neutralizeFetchStatus(status: ProfileRunResult["settings"]["fetchStatus"]): string {
   return status === "failed" ? "unavailable" : status;
+}
+
+function neutralizeBrowserScan(
+  bs: NonNullable<ProfileRunResult["browserScan"]>
+): ReportOutputData["results"][number]["browserScan"] {
+  return {
+    ...bs,
+    status: neutralizeStatus(bs.status),
+    error: neutralizeOptionalText(bs.error),
+    values: Object.fromEntries(
+      Object.entries(bs.values).map(([key, value]) => [
+        key,
+        {
+          ...value,
+          note: neutralizeOptionalText(value.note)
+        }
+      ])
+    ),
+    probe: bs.probe
+      ? {
+          ...bs.probe,
+          values: Object.fromEntries(
+            Object.entries(bs.probe.values).map(([key, value]) => [
+              key,
+              {
+                ...value,
+                note: neutralizeOptionalText(value.note)
+              }
+            ])
+          ),
+          checks: bs.probe.checks
+            ? Object.fromEntries(
+                Object.entries(bs.probe.checks).map(([key, value]) => [
+                  key,
+                  {
+                    ...value,
+                    note: neutralizeText(value.note)
+                  }
+                ])
+              )
+            : undefined
+        }
+      : undefined
+  };
 }
 
 function neutralizeOptionalText(value: string | undefined): string | undefined {
@@ -629,58 +713,47 @@ function buildSafeJson(report: ReportData): ReportOutputData {
   const output: ReportOutputData = {
     ...safeReport,
     profileIds: [...safeReport.profileIds],
-    results: safeReport.results.map((result) => ({
-      ...result,
-      status: neutralizeStatus(result.status),
-      notes: result.notes.map((note) => neutralizeText(note)),
-      settings: {
-        ...result.settings,
-        settings: result.settings.settings,
-        fetchStatus: neutralizeFetchStatus(result.settings.fetchStatus),
-        error: neutralizeOptionalText(result.settings.error)
-      },
-      browserScan: result.browserScan
-        ? {
-            ...result.browserScan,
-            status: neutralizeStatus(result.browserScan.status),
-            error: neutralizeOptionalText(result.browserScan.error),
-            values: Object.fromEntries(
-              Object.entries(result.browserScan.values).map(([key, value]) => [
-                key,
-                {
-                  ...value,
-                  note: neutralizeOptionalText(value.note)
-                }
-              ])
-            ),
-            probe: result.browserScan.probe
-              ? {
-                  ...result.browserScan.probe,
-                  values: Object.fromEntries(
-                    Object.entries(result.browserScan.probe.values).map(([key, value]) => [
-                      key,
-                      {
-                        ...value,
-                        note: neutralizeOptionalText(value.note)
-                      }
-                    ])
-                  ),
-                  checks: result.browserScan.probe.checks
-                    ? Object.fromEntries(
-                        Object.entries(result.browserScan.probe.checks).map(([key, value]) => [
-                          key,
-                          {
-                            ...value,
-                            note: neutralizeText(value.note)
-                          }
-                        ])
-                      )
-                    : undefined
-                }
-              : undefined
-          }
-        : undefined
-    }))
+    results: safeReport.results.map((result) => {
+      const resultRecord = result as unknown as Record<string, unknown>;
+      const { stability: _stability, ...restResult } = resultRecord;
+      const base: ReportOutputData["results"][number] = {
+        ...restResult,
+        profileId: result.profileId,
+        status: neutralizeStatus(result.status),
+        notes: result.notes.map((note) => neutralizeText(note)),
+        settings: {
+          ...result.settings,
+          settings: result.settings.settings,
+          fetchStatus: neutralizeFetchStatus(result.settings.fetchStatus),
+          error: neutralizeOptionalText(result.settings.error)
+        },
+        browserScan: result.browserScan
+          ? neutralizeBrowserScan(result.browserScan)
+          : undefined
+      };
+
+      if (result.stability) {
+        (base as Record<string, unknown>).stability = {
+          runCount: result.stability.runCount,
+          runs: result.stability.runs.map((run) => ({
+            runIndex: run.runIndex,
+            browserScan: neutralizeBrowserScan(run.browserScan)!
+          })),
+          fields: Object.fromEntries(
+            Object.entries(result.stability.fields).map(([key, field]) => [
+              key,
+              {
+                status: field.status,
+                samples: field.samples,
+                uniqueValues: field.uniqueValues
+              }
+            ])
+          )
+        };
+      }
+
+      return base;
+    })
   };
 
   return sanitizeReportValue(output) as ReportOutputData;
