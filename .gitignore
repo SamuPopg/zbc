@@ -4,3 +4,4 @@ reports/
 config.local.json
 .env
 *.log
+.claude/

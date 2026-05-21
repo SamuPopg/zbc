@@ -280,4 +280,78 @@ describe("writeReports", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("adds field-dependency notes for webgl, client_rects, gpu, longitude, latitude", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
+    try {
+      const output = await writeReports(
+        {
+          generatedAt: "2026-05-21T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_DEP"],
+          results: [
+            {
+              profileId: "PROFILE_ID_DEP",
+              status: "ok",
+              notes: [],
+              settings: {
+                profileId: "PROFILE_ID_DEP",
+                settings: {
+                  webgl: "Google Inc. -- ANGLE Renderer",
+                  client_rects: "layout-sensitive-value",
+                  gpu: "NVIDIA GeForce RTX 3080",
+                  longitude: "116.397128",
+                  latitude: "39.916527",
+                  location: "Beijing"
+                },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_DEP",
+                status: "ok",
+                rawText: "BS raw text",
+                values: {
+                  webgl: { value: "BS_webgl_hash", source: "runtime" },
+                  client_rects: { value: "BS_client_rects_hash", source: "runtime" },
+                  gpu: { value: "BS_gpu_hash", source: "runtime" },
+                  longitude: { value: "116.397128", source: "runtime" },
+                  latitude: { value: "39.916527", source: "runtime" },
+                  location: { value: "Beijing", source: "runtime" }
+                }
+              }
+            }
+          ]
+        },
+        dir
+      );
+
+      const html = await readFile(output.htmlPath, "utf8");
+
+      // Core UI columns preserved
+      expect(html).toContain("设置值");
+      expect(html).toContain("BS值");
+
+      // No pass/fail style wording
+      expect(html).not.toMatch(/pass|fail|通过|失败|异常|不通过/i);
+
+      // Field dependency notes present
+      expect(html).toContain("WebGL BS值通常来自 vendor/renderer 与完整 WebGL 参数 hash");
+      expect(html).toContain("DOM 布局测量对字体、DPR、缩放、渲染管线和测量时机敏感");
+      expect(html).toContain("GPU BS值可能来自 WebGPU adapter/features/limits hash，需结合 raw/probe 判断");
+      expect(html).toContain("依赖代理出口 IP 地理库，代理变化时可能变化");
+
+      // browser_scan_raw_text row does NOT get a dependency note (other rows may)
+      // We just verify none of the dependency note strings appear with browser_scan_raw_text label
+      const bsRawRowMatch = html.match(/BrowserScan 原文[\s\S]*?<div class="note-text">([^<]*)/);
+      if (bsRawRowMatch) {
+        const note = bsRawRowMatch[1];
+        expect(note).not.toContain("字段说明：WebGL");
+        expect(note).not.toContain("字段说明：DOM 布局");
+        expect(note).not.toContain("字段说明：GPU BS值");
+        expect(note).not.toContain("依赖代理出口 IP");
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

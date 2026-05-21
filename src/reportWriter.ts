@@ -116,6 +116,19 @@ function neutralizeOptionalText(value: string | undefined): string | undefined {
   return value === undefined ? undefined : neutralizeText(value);
 }
 
+const FIELD_DEPENDENCY_NOTES: Record<string, string> = {
+  webgl: "字段说明：WebGL BS值通常来自 vendor/renderer 与完整 WebGL 参数 hash",
+  client_rects: "字段说明：DOM 布局测量对字体、DPR、缩放、渲染管线和测量时机敏感",
+  gpu: "字段说明：GPU BS值可能来自 WebGPU adapter/features/limits hash，需结合 raw/probe 判断",
+  longitude: "字段说明：依赖代理出口 IP 地理库，代理变化时可能变化",
+  latitude: "字段说明：依赖代理出口 IP 地理库，代理变化时可能变化",
+  location: "字段说明：依赖代理出口 IP 地理库，代理变化时可能变化"
+};
+
+function dependencyNoteFor(key: string): string | undefined {
+  return FIELD_DEPENDENCY_NOTES[key];
+}
+
 const FINGERPRINT_LABELS: Record<string, { label: string; key: string }> = {
   ua: { label: "User Agent", key: "ua" },
   browser_kernel_config: { label: "浏览器内核配置", key: "browser_kernel_config" },
@@ -224,6 +237,7 @@ function cellFor(result: ReportOutputData["results"][number], key: string): stri
   const browserScanValue = result.browserScan?.values[key];
   const notes = [
     browserScanValue?.note,
+    dependencyNoteFor(key),
     ...probeNotesFor(result, key),
     ...result.notes
   ].filter((note): note is string => Boolean(note));
