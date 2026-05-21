@@ -216,6 +216,118 @@ BrowserScan 里的 GPU 项不一定等同于 WebGL renderer。它可能来自 We
 }
 ```
 
+## 状态与返回结果说明
+
+本节详细说明报告中可能出现的各类状态和返回值的含义，便于查看 JSON 和 HTML 报告时快速定位问题来源。措辞保持中性，不做通过/失败判定。
+
+### 一、配置阶段错误
+
+配置加载阶段会直接终止运行，通常不生成报告。常见错误及含义：
+
+| 错误信息 | 含义 |
+|---|---|
+| `apiKey is required` | 未设置 API key，工具无法调用 AdsPower 接口 |
+| `profileIds must contain at least one profile id` | 未传入任何 profile ID |
+| `profileIds must only contain non-empty strings` | profile ID 列表中包含空字符串 |
+| `backendBaseUrl is required` | 未设置后端接口地址 |
+| `localApiBaseUrl is required` | 未设置 Local API 地址 |
+| `browserScanUrl is required` | 未设置 BrowserScan 地址 |
+| `stabilityRuns must be an integer between 1 and 5` | 复测轮数超出 1-5 范围 |
+| `stabilityMode must be "session" or "restart"` | 稳定性模式值不合法，应为 session 或 restart |
+| `stabilityMode restart requires closeAfterRun=true when stabilityRuns > 1` | 冷启动复测需要 closeAfterRun=true |
+
+### 二、profile 整体状态（results[].status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 设置值获取成功，并且第一轮 BrowserScan 采集成功 |
+| `partial` | 设置值或第一轮 BrowserScan 有一边不完整。例如设置值获取失败但 BrowserScan 采集成功，或 BrowserScan 第一轮失败 |
+| `failed` | profile 运行过程中出现未处理异常。冷启动复测中的单轮连接失败通常会记录到 `stability.runs[].browserScan`，不一定导致整个 profile failed |
+
+### 三、设置值状态（results[].settings.fetchStatus）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 后端或 Local API 取到了 AdsPower profile 设置 |
+| `failed` | 设置值获取失败，原因在 `results[].settings.error` |
+
+### 四、BrowserScan 状态（results[].browserScan.status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | BrowserScan 采集成功 |
+| `failed` | 启动环境、连接 CDP、访问 BrowserScan 或采集过程失败，原因在 `results[].browserScan.error` |
+
+ BrowserScan 采集失败可能出现在以下环节：环境启动超时、CDP 连接失败、BrowserScan 页面加载超时、页面 DOM 解析异常等。查看 `browserScan.error` 字段可定位具体环节。
+
+### 五、稳定性模式（stability.mode）
+
+| 模式 | 含义 |
+|---|---|
+| `session` | 同一个已启动环境中连续采集多轮，用于观察 BrowserScan 页面/采集过程本身的短时间波动，例如 WebGPU、Client Rects 等运行时字段在同一次会话内的稳定性 |
+| `restart` | 每轮执行 start -> connect -> collect -> close -> stop，用于观察冷启动后的指纹稳定性。该模式要求 `closeAfterRun=true` |
+
+`stabilityRuns` 为 1 时通常不会生成 stability 摘要；设置为 2-5 时才有复测意义。
+
+### 六、稳定性字段状态（stability.fields[field].status）
+
+| 状态 | 含义 |
+|---|---|
+| `unchanged` | 多轮采到的非空值一致 |
+| `changed` | 多轮采到的非空值不一致；不是失败，只表示有波动，需要结合设置值、BS值、Probe、componentSnapshot 判断 |
+| `not_collected` | 所有轮次都没有采到这个字段 |
+
+判断规则说明：
+
+- 失败轮次中没有采到的空值不参与 changed/unchanged 判断。
+- 例如 3 轮中 1 轮 BrowserScan 失败，另外 2 轮 webgl 都是同一个值，则 webgl 仍会是 `unchanged`，但 `samples` 会显示某一轮没有值。
+- `browser_scan_raw_text` 不纳入 `stability.fields`，避免 JSON 变大且无意义。
+
+### 七、单轮稳定性采集结果（stability.runs[].browserScan.status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 该轮 BrowserScan 采集成功 |
+| `failed` | 该轮没有采集到 BrowserScan，原因在 `stability.runs[].browserScan.error` |
+
+**重要示例说明**：
+
+"冷启动复测有 1/3 轮未采集到 BrowserScan" 表示 3 轮中有 1 轮失败、2 轮成功。这是该 profile 的复测摘要，不是每个指纹项都失败。`stability.runs[].browserScan.status` 描述的是该 profile 该轮 BrowserScan 采集的整体结果，不是逐字段的采集状态。
+
+### 八、字段值来源（BrowserScanValue.source）
+
+| 来源 | 含义 |
+|---|---|
+| `dom` | 从 BrowserScan 页面 DOM 读取 |
+| `runtime` | 从 BrowserScan 页面运行态/组件快照读取（即 `window._getComponent()` 快照） |
+| `probe` | 工具自己的 JS Probe 采集到的辅助实测值 |
+| `not_collected` | 未采到该字段 |
+
+**强调**：Probe 值不能顶替 BS 值。BrowserScan 没采到时，BS值仍应显示未获取。Probe 只是辅助排查手段，用于判断 AdsPower 设置是否在浏览器运行时生效，不作为 BrowserScan 第三方实测值的替代。
+
+### 九、Probe 校验状态
+
+| 状态 | 含义 |
+|---|---|
+| `一致` | 设置值和 Probe 实测值可直接比较且一致 |
+| `需人工判断` | 字段可辅助观察，但不能自动判定。例如 canvas、audio、webgl、webgl_image 等，Probe 采到的是 hash 或列表，与设置值的语义不对等，需要人工判断图形渲染是否正常 |
+| `无法通过 JS 校验` | 该字段不适合通过页面 JS Probe 验证。例如 TLS、出口 IP、HTTP header 等，需要服务端或第三方网络视角 |
+
+**强调**：Probe 是辅助排查工具，不是 BrowserScan 的替代来源。即使 Probe 采到某个值，也不能将 BS 值字段标记为"已采集"。
+
+### 十、备注来源
+
+HTML 备注可能来自以下来源，查看备注时可先判断来源类型：
+
+- **BrowserScan 字段自身备注**：BrowserScan 页面中该字段带的备注信息
+- **字段依赖说明**：该字段依赖的其他字段说明，例如 webgl 可能注明依赖 renderer 设置
+- **Probe 校验备注**：Probe 值和设置值的对比结果，例如 `设置值与 Probe一致` 或 `需人工判断`
+- **Probe 实测值**：工具自己的 JS Probe 在浏览器运行环境中采集到的辅助值，显示为 `Probe实测：xxx`
+- **profile 级摘要**：profile 整体运行状态说明，例如冷启动复测有多少轮未采集到 BrowserScan
+- **关闭浏览器/关闭环境时的清理提示**：描述关闭过程中是否成功清理了浏览器进程和环境
+
+**注意**：当前 HTML 备注区域可能比较长，因为字段级备注（每个指纹项的采集情况）和 profile 级备注（profile 整体运行状态）都会进入同一个备注区域。查看时需区分备注来源类型，结合字段名、状态和备注综合判断。
+
 ## 验证命令
 
 ```powershell

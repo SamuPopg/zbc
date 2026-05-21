@@ -87,6 +87,110 @@ Probe 校验只使用中性状态：
 
 `canvas=1`、`audio=1`、`webgl_image=1` 这类设置不会判断”正确 hash”，只在备注里显示 Probe hash 并标记为 `需人工判断`。
 
+## 状态与返回结果说明
+
+本节说明报告中可能出现的各类状态和返回值的含义，便于查看 JSON 和 HTML 报告时快速理解。措辞保持中性，不做通过/失败判定。
+
+### 配置阶段错误
+
+配置加载阶段会直接终止运行，通常不生成报告。常见错误：
+
+| 错误信息 | 含义 |
+|---|---|
+| `apiKey is required` | 未设置 API key |
+| `profileIds must contain at least one profile id` | 未传入任何 profile ID |
+| `profileIds must only contain non-empty strings` | profile ID 列表中包含空字符串 |
+| `backendBaseUrl is required` | 未设置后端接口地址 |
+| `localApiBaseUrl is required` | 未设置 Local API 地址 |
+| `browserScanUrl is required` | 未设置 BrowserScan 地址 |
+| `stabilityRuns must be an integer between 1 and 5` | 复测轮数超出 1-5 范围 |
+| `stabilityMode must be “session” or “restart”` | 稳定性模式值不合法 |
+| `stabilityMode restart requires closeAfterRun=true when stabilityRuns > 1` | 冷启动复测需要 closeAfterRun=true |
+
+### profile 整体状态（results[].status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 设置值获取成功，且第一轮 BrowserScan 采集成功 |
+| `partial` | 设置值或第一轮 BrowserScan 有一边不完整。例如设置值获取失败但 BrowserScan 采集成功，或 BrowserScan 第一轮失败 |
+| `failed` | profile 运行过程中出现未处理异常。冷启动复测中的单轮连接失败通常记录到 `stability.runs[].browserScan`，不一定导致整个 profile failed |
+
+### 设置值状态（results[].settings.fetchStatus）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 通过后端或 Local API 获取到了 AdsPower profile 设置 |
+| `failed` | 设置值获取失败，原因在 `results[].settings.error` |
+
+### BrowserScan 状态（results[].browserScan.status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | BrowserScan 采集成功 |
+| `failed` | 启动环境、连接 CDP、访问 BrowserScan 或采集过程失败，原因在 `results[].browserScan.error` |
+
+### 稳定性模式（stability.mode）
+
+| 模式 | 含义 |
+|---|---|
+| `session` | 同一个已启动环境中连续采集多轮，观察 BrowserScan 页面/采集过程本身的短时间波动 |
+| `restart` | 每轮执行 start -> connect -> collect -> close -> stop，观察冷启动后的指纹稳定性 |
+
+`stabilityRuns` 为 1 时通常不生成 stability 摘要；设置为 2-5 时才有复测意义。
+
+### 稳定性字段状态（stability.fields[field].status）
+
+| 状态 | 含义 |
+|---|---|
+| `unchanged` | 多轮采到的非空值一致 |
+| `changed` | 多轮采到的非空值不一致，不是失败，只表示有波动，需结合设置值、BS值、Probe、componentSnapshot 判断 |
+| `not_collected` | 所有轮次都没有采到这个字段 |
+
+失败轮次中没有采到的空值不参与 changed/unchanged 判断。例如 3 轮中 1 轮 BrowserScan 失败，另外 2 轮该字段值相同，则该字段仍为 `unchanged`，但 `samples` 会显示某一轮没有值。`browser_scan_raw_text` 不纳入 stability.fields。
+
+### 单轮稳定性采集结果（stability.runs[].browserScan.status）
+
+| 状态 | 含义 |
+|---|---|
+| `ok` | 该轮 BrowserScan 采集成功 |
+| `failed` | 该轮没有采集到 BrowserScan，原因在 `stability.runs[].browserScan.error` |
+
+“冷启动复测有 1/3 轮未采集到 BrowserScan” 表示 3 轮中有 1 轮失败、2 轮成功，这是该 profile 的复测摘要，不是每个指纹项都失败。
+
+### 字段值来源（BrowserScanValue.source）
+
+| 来源 | 含义 |
+|---|---|
+| `dom` | 从 BrowserScan 页面 DOM 读取 |
+| `runtime` | 从 BrowserScan 页面运行态/组件快照读取 |
+| `probe` | 工具自己的 JS Probe 采集到的辅助实测值 |
+| `not_collected` | 未采到该字段 |
+
+Probe 值不能顶替 BS 值。BrowserScan 没采到时，BS值仍应显示未获取。
+
+### Probe 校验状态
+
+| 状态 | 含义 |
+|---|---|
+| `一致` | 设置值和 Probe 实测值可直接比较且一致 |
+| `需人工判断` | 字段可辅助观察，但不能自动判定 |
+| `无法通过 JS 校验` | 该字段不适合通过页面 JS Probe 验证 |
+
+Probe 是辅助排查工具，不是 BrowserScan 的替代来源。
+
+### 备注来源
+
+HTML 备注可能来自：
+
+- BrowserScan 字段自身备注
+- 字段依赖说明
+- Probe 校验备注
+- Probe 实测值
+- profile 级摘要，例如冷启动复测有多少轮未采集到 BrowserScan
+- 关闭浏览器/关闭环境时的清理提示
+
+备注可能会比较长，因为字段级备注和 profile 级备注都会进入备注区域。
+
 ## 只改代理或 WebGL 后，BS 值为什么会变化
 
 同一浏览器环境下，只改了代理信息或 WebGL 元数据配置，BrowserScan 的 webgl、Client Rects、经度、纬度、GPU 等 BS 值发生变化，通常是符合采集原理的正常现象，不是环境配置失败。详细解释和排查方式见 [runbook](docs/runbook.md#为什么只改代理或-webgl-后部分-bs-值会变化)。
