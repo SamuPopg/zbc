@@ -51,6 +51,28 @@ describe("writeReports", () => {
                 status: "failed",
                 rawText: "BrowserScan text",
                 error: "BrowserScan 执行失败",
+                componentSnapshot: {
+                  allComplete: true,
+                  hardware: {
+                    webGPUHash: "component-webgpu-hash",
+                    webGPU: {
+                      adapter: "component-adapter",
+                      wgslLanguageFeatures: ["readonly_and_readwrite_storage_textures", "packed_4x8_integer_dot_product"]
+                    }
+                  },
+                  httpFP: {
+                    tls_fp_hash: "component-tls-hash",
+                    authorization: "Bearer component-authorization-secret"
+                  },
+                  software: {
+                    fontsList: ["Arial", "Calibri"],
+                    token: "component-token-secret"
+                  },
+                  ipdata: {
+                    ip: "198.51.100.20",
+                    city: "New York"
+                  }
+                },
                 values: {
                   ua: {
                     value: "evidence-pass-fail-通过-失败",
@@ -147,6 +169,26 @@ describe("writeReports", () => {
       expect(result.browserScan.status).toBe("error");
       expect(result.browserScan.error).not.toMatch(/pass|fail|通过|失败/i);
       expect(result.browserScan.values.ua.note).not.toMatch(/pass|fail|通过|失败/i);
+
+      // componentSnapshot present in JSON with nested structure
+      expect(result.browserScan.componentSnapshot.hardware.webGPU.wgslLanguageFeatures).toEqual([
+        "readonly_and_readwrite_storage_textures",
+        "packed_4x8_integer_dot_product"
+      ]);
+      expect(result.browserScan.componentSnapshot.httpFP.tls_fp_hash).toBe("component-tls-hash");
+      expect(result.browserScan.componentSnapshot.ipdata.city).toBe("New York");
+
+      // Sensitive fields redacted in JSON
+      expect(json).not.toContain("component-authorization-secret");
+      expect(json).not.toContain("component-token-secret");
+      expect(result.browserScan.componentSnapshot.httpFP.authorization).toBe("[REDACTED]");
+      expect(result.browserScan.componentSnapshot.software.token).toBe("[REDACTED]");
+
+      // HTML does NOT display componentSnapshot data
+      expect(html).not.toContain("wgslLanguageFeatures");
+      expect(html).not.toContain("component-webgpu-hash");
+      expect(html).not.toContain("component-tls-hash");
+      expect(html).not.toContain("component-token-secret");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

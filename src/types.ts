@@ -61,9 +61,22 @@ export interface ProbeResult {
   error?: string;
 }
 
+export interface BrowserScanComponentSnapshot {
+  allComplete?: boolean;
+  browser?: Record<string, unknown>;
+  hardware?: Record<string, unknown>;
+  httpFP?: Record<string, unknown>;
+  ipdata?: Record<string, unknown>;
+  kernelInfo?: Record<string, unknown>;
+  software?: Record<string, unknown>;
+  webrtc?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface BrowserScanResult {
   profileId: string;
   values: Record<string, BrowserScanValue>;
+  componentSnapshot?: BrowserScanComponentSnapshot;
   probe?: ProbeResult;
   rawText: string;
   status: "ok" | "failed";

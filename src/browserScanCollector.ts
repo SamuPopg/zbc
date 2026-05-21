@@ -1,4 +1,4 @@
-import type { BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig } from "./types.js";
+import type { BrowserScanComponentSnapshot, BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig } from "./types.js";
 import type { Browser, Page } from "playwright";
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -266,17 +266,6 @@ const PROBE_SCRIPT = String.raw`(async () => {
     speechVoices: readSpeechVoices()
   };
 })()`;
-
-type BrowserScanComponentSnapshot = {
-  allComplete?: boolean;
-  browser?: Record<string, unknown>;
-  hardware?: Record<string, unknown>;
-  httpFP?: Record<string, unknown>;
-  ipdata?: Record<string, unknown>;
-  kernelInfo?: Record<string, unknown>;
-  software?: Record<string, unknown>;
-  webrtc?: Record<string, unknown>;
-};
 
 function probeValue(value: unknown): BrowserScanValue {
   return { value, source: "probe" };
@@ -654,6 +643,7 @@ export async function collectBrowserScan(
     return {
       profileId,
       values,
+      componentSnapshot,
       probe,
       rawText: truncatedText,
       status: "ok"

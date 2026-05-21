@@ -126,6 +126,12 @@ describe("collectBrowserScan", () => {
         ja3_hash: "ja3-hash",
         ja4: "ja4-value",
         tls_fp_hash: "tls-fp-hash"
+      },
+      extraDiagnostics: {
+        source: "BrowserScan raw component",
+        nested: {
+          orderSensitiveArray: ["b", "a", "c"]
+        }
       }
     };
     const encodedSnapshot = encodeBrowserScanPayload(snapshot);
@@ -187,6 +193,17 @@ describe("collectBrowserScan", () => {
     expect(result.values.ip.value).toBe("198.51.100.20");
     expect(result.values.language.value).toBe("en-US");
     expect(result.values.timezone.value).toBe("America/New_York");
+
+    // componentSnapshot should be the full raw snapshot, including unmapped fields
+    expect(result.componentSnapshot).toEqual(snapshot);
+
+    // Verify unmapped field is preserved (not stripped to only mapped fields)
+    expect(result.componentSnapshot?.extraDiagnostics).toEqual({
+      source: "BrowserScan raw component",
+      nested: {
+        orderSensitiveArray: ["b", "a", "c"]
+      }
+    });
   });
 
   it("keeps BrowserScan snapshot values when runtime probe evaluation fails", async () => {

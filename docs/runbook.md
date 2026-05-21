@@ -61,7 +61,7 @@ Copy-Item config.example.json config.local.json
 2. 通过 Local API `/api/v2/browser-profile/start` 启动环境。
 3. 用 `ws.puppeteer` 或 `debug_port` 连接已启动浏览器。
 4. 打开 BrowserScan 首页。
-5. 读取 BrowserScan `_getComponent()` 快照，写入 BS值。
+5. 读取 BrowserScan `_getComponent()` 快照，解码后写入 JSON 的 `browserScan.componentSnapshot`，同时映射到 BS值。
 6. 执行 runtime Probe，写入 JSON 的 `browserScan.probe.raw` 和 `browserScan.probe.values`。
 7. 用设置值和 Probe 值生成 `browserScan.probe.checks`。
 8. 生成 HTML/JSON 报告。

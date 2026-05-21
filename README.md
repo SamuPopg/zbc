@@ -66,7 +66,7 @@ npm.cmd run start -- --config config.local.json
 输出文件生成到 `outputDir`：
 
 - `fingerprint-report-*.html`：人工查看的横向对比报告。
-- `fingerprint-report-*.json`：脱敏后的完整排查数据，包含完整 Probe 原始值和每个字段的校验备注。
+- `fingerprint-report-*.json`：脱敏后的完整排查数据，包含完整 Probe 原始值、BrowserScan `_getComponent()` 原始快照 `browserScan.componentSnapshot` 和每个字段的校验备注。
 
 ## Probe 校验
 
