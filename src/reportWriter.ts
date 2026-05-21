@@ -289,6 +289,23 @@ function renderValueBlock(
 
 const NOTE_VALUE_THRESHOLD = 160;
 
+type NoteItem =
+  | { kind: "text"; text: string }
+  | { kind: "details"; summary: string; detail: string };
+
+function renderNoteItems(items: NoteItem[]): string {
+  if (items.length === 0) return "";
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.kind === "text") {
+      parts.push(escapeHtml(item.text));
+    } else {
+      parts.push(`<details><summary>${escapeHtml(item.summary)}</summary><pre>${escapeHtml(item.detail)}</pre></details>`);
+    }
+  }
+  return parts.join("; ");
+}
+
 function compactValue(value: unknown): string {
   const raw = formatValue(value).replace(/\s+/g, " ").trim();
   return raw.length > NOTE_VALUE_THRESHOLD
@@ -296,43 +313,55 @@ function compactValue(value: unknown): string {
     : raw;
 }
 
-function probeNotesFor(result: ReportOutputData["results"][number], key: string): string[] {
+function probeValueNeedsDetails(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "object") return true;
+  const formatted = formatValue(value);
+  return formatted.length > NOTE_VALUE_THRESHOLD;
+}
+
+function probeNoteItemsFor(result: ReportOutputData["results"][number], key: string): NoteItem[] {
   const probe = result.browserScan?.probe;
   if (!probe) {
     return [];
   }
 
-  const notes: string[] = [];
+  const items: NoteItem[] = [];
   const check = probe.checks?.[key];
   const probeValue = probe.values?.[key];
 
   if (check?.note) {
-    notes.push(check.note);
+    items.push({ kind: "text", text: check.note });
   }
   if (probeValue && probeValue.value !== undefined) {
-    notes.push(`Probe实测：${compactValue(probeValue.value)}`);
+    const compact = compactValue(probeValue.value);
+    const full = formatValue(probeValue.value);
+    if (probeValueNeedsDetails(probeValue.value)) {
+      items.push({ kind: "details", summary: `Probe实测：${compact}`, detail: full });
+    } else {
+      items.push({ kind: "text", text: `Probe实测：${compact}` });
+    }
   }
 
-  return notes;
+  return items;
 }
 
 function cellFor(result: ReportOutputData["results"][number], key: string): string {
   const settingsValue = result.settings.settings[key];
   const browserScanValue = result.browserScan?.values[key];
-  const notes = [
-    browserScanValue?.note,
-    dependencyNoteFor(key),
-    ...probeNotesFor(result, key),
-    ...result.notes
-  ].filter((note): note is string => Boolean(note));
+  const fieldNoteItems: NoteItem[] = [
+    browserScanValue?.note ? { kind: "text", text: browserScanValue.note } : undefined,
+    dependencyNoteFor(key) ? { kind: "text", text: dependencyNoteFor(key)! } : undefined,
+    ...probeNoteItemsFor(result, key)
+  ].filter((item): item is NoteItem => Boolean(item));
 
   const settingBlock = renderValueBlock("设置值", settingsValue, "setting");
   const bsBlock = renderValueBlock("BS值", browserScanValue?.value, "bs");
-  const noteLine = notes.length > 0
-    ? `<div class="note-line"><span class="value-label setting">备注</span><span class="note-text">${escapeHtml(notes.join("; "))}</span></div>`
+  const noteHtml = fieldNoteItems.length > 0
+    ? `<div class="note-line"><span class="value-label setting">备注</span><span class="note-text">${renderNoteItems(fieldNoteItems)}</span></div>`
     : `<div class="note-line"><span class="value-label setting">备注</span><span class="note-text missing">未获取</span></div>`;
 
-  return `<div class="value-pair">${settingBlock}${bsBlock}${noteLine}</div>`;
+  return `<div class="value-pair">${settingBlock}${bsBlock}${noteHtml}</div>`;
 }
 
 function buildHtml(report: ReportOutputData): string {
@@ -354,9 +383,13 @@ function buildHtml(report: ReportOutputData): string {
     const metaHtml = metaParts.length > 0
       ? `<div class="profile-meta">${metaParts.map(m => escapeHtml(m)).join(" · ")}</div>`
       : "";
+    const notesHtml = result.notes.length > 0
+      ? `<div class="profile-notes">${result.notes.map(n => escapeHtml(n)).join("；")}</div>`
+      : "";
     return `<th class="profile-head">
       <div class="profile-id">${escapeHtml(result.profileId)}</div>
       ${metaHtml}
+      ${notesHtml}
     </th>`;
   }).join("");
 
@@ -539,6 +572,12 @@ function buildHtml(report: ReportOutputData): string {
       font-size: 13px;
       color: var(--muted);
       margin-top: 3px;
+    }
+    .profile-notes {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      font-style: italic;
     }
 
     /* ─── fingerprint item cell ───────────────────────────────────── */

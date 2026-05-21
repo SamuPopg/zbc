@@ -397,6 +397,250 @@ describe("writeReports", () => {
     }
   });
 
+  it("profile-level notes appear once in profile header, not in each field", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
+    try {
+      const output = await writeReports(
+        {
+          generatedAt: "2026-05-21T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_1"],
+          results: [
+            {
+              profileId: "PROFILE_ID_1",
+              status: "ok",
+              notes: [
+                "冷启动复测有 1/3 轮未采集到 BrowserScan，详见 JSON stability.runs[].browserScan.error"
+              ],
+              settings: {
+                profileId: "PROFILE_ID_1",
+                name: "测试环境-单",
+                settings: {
+                  ua: "Mozilla/5.0",
+                  webgl: "Google Inc. -- ANGLE Renderer",
+                  gpu: "NVIDIA GeForce RTX 3080"
+                },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_1",
+                status: "ok",
+                rawText: "BS raw text",
+                values: {
+                  ua: { value: "Mozilla/5.0", source: "runtime" },
+                  webgl: { value: "webgl-bs-hash", source: "runtime" },
+                  gpu: { value: "gpu-bs-hash", source: "runtime" }
+                }
+              },
+              stability: {
+                mode: "restart",
+                runCount: 3,
+                runs: [
+                  {
+                    runIndex: 1,
+                    browserScan: {
+                      profileId: "PROFILE_ID_1",
+                      status: "ok",
+                      rawText: "BS raw text",
+                      values: {
+                        ua: { value: "Mozilla/5.0", source: "runtime" }
+                      }
+                    }
+                  },
+                  {
+                    runIndex: 2,
+                    browserScan: {
+                      profileId: "PROFILE_ID_1",
+                      status: "failed",
+                      rawText: "",
+                      error: "BrowserScan 连接失败",
+                      values: {}
+                    }
+                  },
+                  {
+                    runIndex: 3,
+                    browserScan: {
+                      profileId: "PROFILE_ID_1",
+                      status: "ok",
+                      rawText: "BS raw text",
+                      values: {
+                        ua: { value: "Mozilla/5.0", source: "runtime" }
+                      }
+                    }
+                  }
+                ],
+                fields: {}
+              }
+            }
+          ]
+        },
+        dir
+      );
+
+      const html = await readFile(output.htmlPath, "utf8");
+      const json = await readFile(output.jsonPath, "utf8");
+      const parsed = JSON.parse(json);
+
+      // JSON still contains the full profile-level note
+      expect(parsed.results[0].notes).toContain(
+        "冷启动复测有 1/3 轮未采集到 BrowserScan，详见 JSON stability.runs[].browserScan.error"
+      );
+
+      // The profile-level note appears exactly once in HTML
+      expect(html.match(/冷启动复测有 1\/3 轮未采集到 BrowserScan/g) ?? []).toHaveLength(1);
+
+      // It appears in a profile header area (profile-notes class), not in field notes
+      const profileNotesMatch = html.match(/class="profile-notes"[^>]*>[\s\S]*?冷启动复测有 1\/3/);
+      expect(profileNotesMatch).not.toBeNull();
+
+      // Field note lines should NOT contain the profile-level note text
+      const noteTextMatches = html.match(/class="note-text"[^>]*>([^<]+)/g) ?? [];
+      for (const match of noteTextMatches) {
+        expect(match).not.toContain("冷启动复测有 1/3");
+      }
+
+      // Field dependency notes still appear in their respective fields
+      expect(html).toContain("WebGL BS值通常来自 vendor/renderer");
+      expect(html).toContain("GPU BS值可能来自 WebGPU");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("probe long object values render as short summary with expandable details", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
+    try {
+      const output = await writeReports(
+        {
+          generatedAt: "2026-05-21T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_LONG_PROBE"],
+          results: [
+            {
+              profileId: "PROFILE_ID_LONG_PROBE",
+              status: "ok",
+              notes: [],
+              settings: {
+                profileId: "PROFILE_ID_LONG_PROBE",
+                name: "长Probe测试",
+                settings: {
+                  webgl_config: {
+                    unmasked_vendor: "Google Inc.",
+                    unmasked_renderer: "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Graphics 540, Unspecified Version)"
+                  }
+                },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_LONG_PROBE",
+                status: "ok",
+                rawText: "BS raw",
+                values: {
+                  webgl_config: { value: "webgl-config-bs-hash", source: "runtime" }
+                },
+                probe: {
+                  raw: {
+                    webgl_config: {
+                      unmaskedVendor: "Google Inc. (Intel Inc.)",
+                      unmaskedRenderer: "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Graphics 540, Unspecified Version)",
+                      extensions: [
+                        "EXT_texture_filter_anisotropic",
+                        "WEBGL_debug_renderer_info",
+                        "OES_texture_float"
+                      ]
+                    }
+                  },
+                  values: {
+                    webgl_config: {
+                      value: {
+                        unmaskedVendor: "Google Inc. (Intel Inc.)",
+                        unmaskedRenderer: "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Graphics 540, Unspecified Version)",
+                        extensions: [
+                          "EXT_texture_filter_anisotropic",
+                          "WEBGL_debug_renderer_info",
+                          "OES_texture_float"
+                        ]
+                      },
+                      source: "probe"
+                    }
+                  },
+                  checks: {}
+                }
+              }
+            }
+          ]
+        },
+        dir
+      );
+
+      const html = await readFile(output.htmlPath, "utf8");
+      const json = await readFile(output.jsonPath, "utf8");
+      const parsed = JSON.parse(json);
+
+      // Probe实测 summary appears
+      expect(html).toContain("Probe实测：");
+
+      // <details> element exists for the long value
+      expect(html).toContain("<details");
+      expect(html).toContain("</details>");
+
+      // The long extension value appears in the detail (inside <pre>)
+      expect(html).toContain("WEBGL_debug_renderer_info");
+
+      // XSS safety: raw script tags from probe values are escaped
+      const xssHtml = await writeReports(
+        {
+          generatedAt: "2026-05-21T00:00:00.000Z",
+          profileIds: ["PROFILE_ID_XSS"],
+          results: [
+            {
+              profileId: "PROFILE_ID_XSS",
+              status: "ok",
+              notes: [],
+              settings: {
+                profileId: "PROFILE_ID_XSS",
+                settings: { ua: "Mozilla/5.0" },
+                randomFingerprintEnabled: false,
+                fetchStatus: "ok"
+              },
+              browserScan: {
+                profileId: "PROFILE_ID_XSS",
+                status: "ok",
+                rawText: "BS raw",
+                values: {
+                  ua: { value: "Mozilla/5.0", source: "runtime" }
+                },
+                probe: {
+                  raw: {},
+                  values: {
+                    ua: {
+                      value: '<script>alert("xss")</script>',
+                      source: "probe"
+                    }
+                  },
+                  checks: {}
+                }
+              }
+            }
+          ]
+        },
+        dir
+      );
+      const xssContent = await readFile(xssHtml.htmlPath, "utf8");
+      expect(xssContent).not.toContain('<script>alert("xss")</script>');
+      expect(xssContent).toContain("&lt;script&gt;");
+
+      // JSON still contains the full unescaped probe value
+      expect(parsed.results[0].browserScan.probe.values.webgl_config.value.extensions).toEqual([
+        "EXT_texture_filter_anisotropic",
+        "WEBGL_debug_renderer_info",
+        "OES_texture_float"
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("stability data appears in JSON but not in HTML", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
     try {
