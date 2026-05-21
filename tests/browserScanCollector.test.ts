@@ -12,7 +12,8 @@ const config: ToolConfig = {
   runMode: "sequential",
   timeoutMs: 60000,
   outputDir: "reports",
-  stabilityRuns: 1
+  stabilityRuns: 1,
+  stabilityMode: "session"
 };
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

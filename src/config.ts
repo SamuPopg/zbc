@@ -17,6 +17,16 @@ function parseStabilityRuns(raw: unknown): number {
   return raw;
 }
 
+function parseStabilityMode(raw: unknown): "session" | "restart" {
+  if (raw === undefined) {
+    return "session";
+  }
+  if (raw === "session" || raw === "restart") {
+    return raw;
+  }
+  throw new Error('stabilityMode must be "session" or "restart"');
+}
+
 function requireString(source: Record<string, unknown>, key: string): string {
   const value = source[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -51,7 +61,7 @@ export function loadConfigFromObject(
     return item.trim();
   });
 
-  return {
+  const config: ToolConfig = {
     backendBaseUrl: trimTrailingSlash(requireString(source, "backendBaseUrl")),
     localApiBaseUrl: trimTrailingSlash(requireString(source, "localApiBaseUrl")),
     apiKey,
@@ -68,8 +78,21 @@ export function loadConfigFromObject(
       typeof source.outputDir === "string" && source.outputDir.trim() !== ""
         ? source.outputDir.trim()
         : "reports",
-    stabilityRuns: parseStabilityRuns(source.stabilityRuns)
+    stabilityRuns: parseStabilityRuns(source.stabilityRuns),
+    stabilityMode: parseStabilityMode(source.stabilityMode)
   };
+
+  if (
+    config.stabilityMode === "restart" &&
+    config.stabilityRuns > 1 &&
+    config.closeAfterRun === false
+  ) {
+    throw new Error(
+      "stabilityMode restart requires closeAfterRun=true when stabilityRuns > 1"
+    );
+  }
+
+  return config;
 }
 
 export async function loadConfigFromFile(path: string): Promise<ToolConfig> {

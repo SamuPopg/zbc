@@ -151,6 +151,81 @@ describe("loadConfigFromObject", () => {
       )
     ).toThrow("stabilityRuns must be an integer between 1 and 5");
   });
+
+  it("defaults stabilityMode to session when not configured", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"]
+      },
+      { ADSPOWER_API_KEY: "secret-key" }
+    );
+    expect(config.stabilityMode).toBe("session");
+  });
+
+  it("accepts stabilityMode: session", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"],
+        stabilityMode: "session"
+      },
+      { ADSPOWER_API_KEY: "secret-key" }
+    );
+    expect(config.stabilityMode).toBe("session");
+  });
+
+  it("accepts stabilityMode: restart", () => {
+    const config = loadConfigFromObject(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"],
+        stabilityMode: "restart"
+      },
+      { ADSPOWER_API_KEY: "secret-key" }
+    );
+    expect(config.stabilityMode).toBe("restart");
+  });
+
+  it("rejects stabilityMode: cold", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"],
+          stabilityMode: "cold"
+        },
+        { ADSPOWER_API_KEY: "secret-key" }
+      )
+    ).toThrow('stabilityMode must be "session" or "restart"');
+  });
+
+  it("rejects stabilityMode restart with stabilityRuns 2 and closeAfterRun false", () => {
+    expect(() =>
+      loadConfigFromObject(
+        {
+          backendBaseUrl: "https://api.example.test",
+          localApiBaseUrl: "http://local.adspower.com:50325",
+          browserScanUrl: "https://www.browserscan.net/",
+          profileIds: ["PROFILE_ID_1"],
+          stabilityMode: "restart",
+          stabilityRuns: 2,
+          closeAfterRun: false
+        },
+        { ADSPOWER_API_KEY: "secret-key" }
+      )
+    ).toThrow(
+      "stabilityMode restart requires closeAfterRun=true when stabilityRuns > 1"
+    );
+  });
 });
 
 describe("loadConfigFromFile", () => {

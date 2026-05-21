@@ -13,7 +13,8 @@ const config = {
   runMode: "sequential" as const,
   timeoutMs: 60000,
   outputDir: "reports",
-  stabilityRuns: 1
+  stabilityRuns: 1,
+  stabilityMode: "session" as const
 };
 
 describe("startProfile", () => {

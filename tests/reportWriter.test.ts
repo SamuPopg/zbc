@@ -431,6 +431,7 @@ describe("writeReports", () => {
                 }
               },
               stability: {
+                mode: "session",
                 runCount: 2,
                 runs: [
                   {

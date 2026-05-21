@@ -1,5 +1,7 @@
 export type RunMode = "sequential";
 
+export type StabilityMode = "session" | "restart";
+
 export type StabilityFieldStatus = "unchanged" | "changed" | "not_collected";
 
 export interface StabilityFieldSample {
@@ -20,6 +22,7 @@ export interface BrowserScanStabilityRun {
 }
 
 export interface BrowserScanStability {
+  mode: StabilityMode;
   runCount: number;
   runs: BrowserScanStabilityRun[];
   fields: Record<string, StabilityFieldSummary>;
@@ -36,6 +39,7 @@ export interface ToolConfig {
   timeoutMs: number;
   outputDir: string;
   stabilityRuns: number;
+  stabilityMode: StabilityMode;
 }
 
 export interface RawProfile {

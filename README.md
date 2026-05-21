@@ -49,13 +49,19 @@ Copy-Item config.example.json config.local.json
   "runMode": "sequential",
   "timeoutMs": 60000,
   "outputDir": "reports",
-  "stabilityRuns": 1
+  "stabilityRuns": 1,
+  "stabilityMode": "session"
 }
 ```
 
 `browserScanUrl` 建议使用 BrowserScan 首页，例如 `https://www.browserscan.net/`。如果配置为 `/webrtc`、`/canvas` 等单项页面，BrowserScan 快照可能不存在，BS值会显示「未获取」。
 
-`stabilityRuns` 可设置为 1-5，默认 1。大于 1 时，工具会在同一个已启动 AdsPower 环境中连续采集 BrowserScan 多次。HTML 仍展示第一轮的「设置值 / BS值 / 备注」；JSON 会额外写入 `stability.runs` 和 `stability.fields`，用于查看同配置下哪些 BrowserScan 字段 unchanged、changed 或 not_collected。
+`stabilityRuns` 可设置为 1-5，默认 1。`stabilityMode` 默认为 `session`。
+
+- `session`：同一个已启动 AdsPower 环境内连续采集 BrowserScan 多次，用于观察 BrowserScan 页面采集、测量时机、WebGPU/Client Rects 等运行时字段是否波动。
+- `restart`：每轮重新启动并关闭同一个 AdsPower profile，用于观察多次冷启动后指纹配置是否一致生效。该模式要求 `closeAfterRun=true`。
+
+HTML 仍展示第一轮的「设置值 / BS值 / 备注」；JSON 会额外写入 `stability.mode`、`stability.runs` 和 `stability.fields`。`changed` 不是失败，只表示多轮采到的值不同。
 
 不要提交真实的 `config.local.json` 或 API key。
 

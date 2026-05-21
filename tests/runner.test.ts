@@ -43,7 +43,8 @@ const config: ToolConfig = {
   runMode: "sequential",
   timeoutMs: 60000,
   outputDir: "reports",
-  stabilityRuns: 1
+  stabilityRuns: 1,
+  stabilityMode: "session"
 };
 
 const settings: ProfileSettings[] = config.profileIds.map((profileId) => ({
@@ -238,7 +239,71 @@ describe("runFingerprintCompare", () => {
     expect(profileResult.stability!.runs).toHaveLength(2);
     expect(profileResult.stability!.runs[0].runIndex).toBe(1);
     expect(profileResult.stability!.runs[1].runIndex).toBe(2);
+    expect(profileResult.stability!.mode).toBe("session");
     expect(profileResult.stability!.fields.ua.status).toBe("unchanged");
+    expect(profileResult.stability!.fields.webgl.status).toBe("changed");
+  });
+
+  it("restarts profile for each stability run when stabilityMode is restart", async () => {
+    const restartConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 2,
+      stabilityMode: "restart",
+      closeAfterRun: true
+    };
+
+    const stabilitySettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-stable" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
+
+    const firstBrowser = browser();
+    const secondBrowser = browser();
+    connectToStartedBrowserMock
+      .mockResolvedValueOnce(firstBrowser as never)
+      .mockResolvedValueOnce(secondBrowser as never);
+
+    collectBrowserScanMock
+      .mockResolvedValueOnce({
+        profileId: "PROFILE_ID_1",
+        status: "ok",
+        rawText: "",
+        values: {
+          ua: { value: "ua-first", source: "runtime" },
+          webgl: { value: "hash-a", source: "runtime" }
+        }
+      })
+      .mockResolvedValueOnce({
+        profileId: "PROFILE_ID_1",
+        status: "ok",
+        rawText: "",
+        values: {
+          ua: { value: "ua-first", source: "runtime" },
+          webgl: { value: "hash-b", source: "runtime" }
+        }
+      });
+
+    const result = await runFingerprintCompare(restartConfig);
+
+    expect(startProfileMock).toHaveBeenCalledTimes(2);
+    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(2);
+    expect(collectBrowserScanMock).toHaveBeenCalledTimes(2);
+    expect(firstBrowser.close).toHaveBeenCalledTimes(1);
+    expect(secondBrowser.close).toHaveBeenCalledTimes(1);
+    expect(stopProfileMock).toHaveBeenCalledTimes(2);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.browserScan?.values.ua?.value).toBe("ua-first");
+    expect(profileResult.stability).toBeDefined();
+    expect(profileResult.stability!.mode).toBe("restart");
+    expect(profileResult.stability!.runCount).toBe(2);
+    expect(profileResult.stability!.runs).toHaveLength(2);
     expect(profileResult.stability!.fields.webgl.status).toBe("changed");
   });
 });

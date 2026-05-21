@@ -93,15 +93,68 @@ async function stopProfileIfNeeded(
   }
 }
 
+async function collectBrowserScanWithChecks(
+  config: ToolConfig,
+  settings: ProfileSettings,
+  browser: Browser
+): Promise<BrowserScanResult> {
+  const scan = await collectBrowserScan(config, settings.profileId, browser);
+  if (scan.probe) {
+    scan.probe.checks = buildProbeChecks(settings.settings, scan.probe.values);
+  }
+  return scan;
+}
+
+async function collectSessionStabilityScans(
+  config: ToolConfig,
+  settings: ProfileSettings,
+  notes: string[]
+): Promise<BrowserScanResult[]> {
+  let browser: Browser | undefined;
+  try {
+    const started = await startProfile(config, settings.profileId);
+    browser = await connectToStartedBrowser(started);
+
+    const scans: BrowserScanResult[] = [];
+    for (let i = 0; i < config.stabilityRuns; i += 1) {
+      scans.push(await collectBrowserScanWithChecks(config, settings, browser));
+    }
+    return scans;
+  } finally {
+    await closeBrowserIfNeeded(config, browser, notes);
+    await stopProfileIfNeeded(config, settings.profileId, notes);
+  }
+}
+
+async function collectRestartStabilityScans(
+  config: ToolConfig,
+  settings: ProfileSettings,
+  notes: string[]
+): Promise<BrowserScanResult[]> {
+  const scans: BrowserScanResult[] = [];
+
+  for (let i = 0; i < config.stabilityRuns; i += 1) {
+    let browser: Browser | undefined;
+    try {
+      const started = await startProfile(config, settings.profileId);
+      browser = await connectToStartedBrowser(started);
+      scans.push(await collectBrowserScanWithChecks(config, settings, browser));
+    } finally {
+      await closeBrowserIfNeeded(config, browser, notes);
+      await stopProfileIfNeeded(config, settings.profileId, notes);
+    }
+  }
+
+  return scans;
+}
+
 async function runProfile(
   config: ToolConfig,
   settings: ProfileSettings
 ): Promise<ProfileRunResult> {
   const notes: string[] = [];
-  let browser: Browser | undefined;
   let browserScan: BrowserScanResult | undefined;
   let status: ProfileRunResult["status"] = "failed";
-  const stabilityRuns = config.stabilityRuns ?? 1;
 
   if (settings.fetchStatus === "failed") {
     notes.push(`设置值不可用：${settings.error ?? "unknown error"}`);
@@ -112,17 +165,11 @@ async function runProfile(
   }
 
   try {
-    const started = await startProfile(config, settings.profileId);
-    browser = await connectToStartedBrowser(started);
-
-    const browserScans: BrowserScanResult[] = [];
-    for (let i = 0; i < stabilityRuns; i++) {
-      const scan = await collectBrowserScan(config, settings.profileId, browser);
-      if (scan.probe) {
-        scan.probe.checks = buildProbeChecks(settings.settings, scan.probe.values);
-      }
-      browserScans.push(scan);
-    }
+    const isRestartMode =
+      config.stabilityMode === "restart" && config.stabilityRuns > 1;
+    const browserScans = isRestartMode
+      ? await collectRestartStabilityScans(config, settings, notes)
+      : await collectSessionStabilityScans(config, settings, notes);
 
     browserScan = browserScans[0];
     status = statusFor(settings, browserScan);
@@ -135,9 +182,10 @@ async function runProfile(
       browserScan
     };
 
-    if (stabilityRuns > 1) {
+    if (config.stabilityRuns > 1) {
       result.stability = {
-        runCount: stabilityRuns,
+        mode: config.stabilityMode,
+        runCount: config.stabilityRuns,
         runs: browserScans.map((bs, index) => ({
           runIndex: index + 1,
           browserScan: bs
@@ -157,9 +205,6 @@ async function runProfile(
       settings,
       browserScan
     };
-  } finally {
-    await closeBrowserIfNeeded(config, browser, notes);
-    await stopProfileIfNeeded(config, settings.profileId, notes);
   }
 }
 

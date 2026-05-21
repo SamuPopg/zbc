@@ -61,7 +61,8 @@ describe("fetchProfileSettings", () => {
         runMode: "sequential",
         timeoutMs: 60000,
         outputDir: "reports",
-        stabilityRuns: 1
+        stabilityRuns: 1,
+        stabilityMode: "session"
       },
       fetchMock as unknown as typeof fetch
     );
@@ -128,7 +129,8 @@ describe("fetchProfileSettings", () => {
         runMode: "sequential",
         timeoutMs: 60000,
         outputDir: "reports",
-        stabilityRuns: 1
+        stabilityRuns: 1,
+        stabilityMode: "session"
       },
       fetchMock as unknown as typeof fetch
     );

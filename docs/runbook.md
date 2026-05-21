@@ -174,17 +174,22 @@ BrowserScan 里的 GPU 项不一定等同于 WebGL renderer。它可能来自 We
 
 ## 稳定性复测模式
 
-设置 `stabilityRuns` 为 2-5 时，工具会在同一个已启动 AdsPower 环境中连续采集 BrowserScan 多次，用于观察同配置下哪些字段稳定、哪些字段有波动。
+`stabilityRuns` 可设置为 1-5，默认 1。`stabilityMode` 默认为 `session`。
+
+### 两种模式
+
+- `session`：同会话采集复测。Profile 只启动一次，Browser 只连接一次，然后连续采集 N 轮。用于观察 BrowserScan 页面采集、测量时机、WebGPU/Client Rects 等运行时字段是否波动。
+- `restart`：冷启动复测。每一轮都执行 `start profile -> connect browser -> collect BrowserScan -> close browser -> stop profile`。用于观察同一个 profile 多次重新启动后，BrowserScan 字段是否一致。该模式要求 `closeAfterRun=true`。
 
 ### 行为说明
 
-- Profile 只启动一次，Browser 只连接一次，然后连续采集 N 轮。
 - `browserScan` 始终是第一轮采集结果，HTML 报告和现有 JSON 消费者行为不变。
 - `stability.runs` 保存全部 N 轮次的 browserScan 数据。
 - `stability.fields` 是字段波动摘要，status 为 `unchanged`、`changed` 或 `not_collected`。
+- `stability.mode` 表示复测模式。
 - `changed` 不是失败，只表示多轮采到的值不同，需结合设置值、BS值、Probe、componentSnapshot 判断。
 - `browser_scan_raw_text` 不纳入 `stability.fields`，避免 JSON 变大且无意义。
-- 不自动修改代理、不自动改 WebGL、不编辑 AdsPower profile。
+- restart 模式不自动修改代理、不自动改 WebGL、不编辑 AdsPower profile，只重复启动同一个 profile。
 
 ### 字段状态说明
 
@@ -197,6 +202,7 @@ BrowserScan 里的 GPU 项不一定等同于 WebGL renderer。它可能来自 We
 ```json
 {
   "stability": {
+    "mode": "session",
     "runCount": 2,
     "runs": [
       { "runIndex": 1, "browserScan": { ...第一轮完整结果 } },
