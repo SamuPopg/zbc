@@ -34,6 +34,19 @@ function failedSettings(profileId: string, error: unknown): ProfileSettings {
   };
 }
 
+function failedBrowserScanResult(
+  profileId: string,
+  error: unknown
+): BrowserScanResult {
+  return {
+    profileId,
+    values: {},
+    rawText: "",
+    status: "failed",
+    error: errorMessage(error)
+  };
+}
+
 export function buildReportData(results: ProfileRunResult[]): ReportData {
   return {
     generatedAt: new Date().toISOString(),
@@ -89,6 +102,9 @@ async function stopProfileIfNeeded(
   try {
     await stopProfile(config, profileId);
   } catch (error) {
+    if (/Profile is not open/i.test(errorMessage(error))) {
+      return;
+    }
     notes.push(`关闭环境错误：${errorMessage(error)}`);
   }
 }
@@ -139,6 +155,8 @@ async function collectRestartStabilityScans(
       const started = await startProfile(config, settings.profileId);
       browser = await connectToStartedBrowser(started);
       scans.push(await collectBrowserScanWithChecks(config, settings, browser));
+    } catch (error) {
+      scans.push(failedBrowserScanResult(settings.profileId, error));
     } finally {
       await closeBrowserIfNeeded(config, browser, notes);
       await stopProfileIfNeeded(config, settings.profileId, notes);
@@ -173,6 +191,17 @@ async function runProfile(
 
     browserScan = browserScans[0];
     status = statusFor(settings, browserScan);
+
+    if (config.stabilityRuns > 1) {
+      const failedRunCount = browserScans.filter(
+        (scan) => scan.status === "failed"
+      ).length;
+      if (failedRunCount > 0) {
+        notes.push(
+          `${config.stabilityMode === "restart" ? "冷启动复测" : "同会话复测"}有 ${failedRunCount}/${config.stabilityRuns} 轮未采集到 BrowserScan，详见 JSON stability.runs[].browserScan.error`
+        );
+      }
+    }
 
     const result: ProfileRunResult = {
       profileId: settings.profileId,

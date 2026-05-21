@@ -244,6 +244,109 @@ describe("runFingerprintCompare", () => {
     expect(profileResult.stability!.fields.webgl.status).toBe("changed");
   });
 
+  it("keeps restart stability runs when one cold start cannot connect", async () => {
+    const restartConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 2,
+      stabilityMode: "restart",
+      closeAfterRun: true
+    };
+
+    const stabilitySettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-stable" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
+
+    const secondBrowser = browser();
+    connectToStartedBrowserMock
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:14192"))
+      .mockResolvedValueOnce(secondBrowser as never);
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {
+        ua: { value: "ua-second", source: "runtime" },
+        webgl: { value: "hash-b", source: "runtime" }
+      }
+    });
+
+    stopProfileMock
+      .mockRejectedValueOnce(new Error("Profile is not open"))
+      .mockResolvedValueOnce(undefined);
+
+    const result = await runFingerprintCompare(restartConfig);
+
+    expect(startProfileMock).toHaveBeenCalledTimes(2);
+    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(2);
+    expect(collectBrowserScanMock).toHaveBeenCalledTimes(1);
+    expect(stopProfileMock).toHaveBeenCalledTimes(2);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.stability?.mode).toBe("restart");
+    expect(profileResult.stability?.runs).toHaveLength(2);
+
+    expect(profileResult.stability?.runs[0].browserScan.status).toBe("failed");
+    expect(profileResult.stability?.runs[0].browserScan.error).toContain("ECONNREFUSED");
+
+    expect(profileResult.stability?.runs[1].browserScan.status).toBe("ok");
+    expect(profileResult.stability?.runs[1].browserScan.values.webgl?.value).toBe("hash-b");
+
+    expect(profileResult.notes.join(" ")).toContain("冷启动复测有 1/2 轮未采集到 BrowserScan");
+    expect(profileResult.notes.join(" ")).not.toContain("ECONNREFUSED");
+    expect(profileResult.notes.join(" ")).not.toContain("Profile is not open");
+
+    expect(profileResult.browserScan?.status).toBe("failed");
+  });
+
+  it("ignores Profile is not open cleanup errors in restart mode", async () => {
+    const restartConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 1,
+      stabilityMode: "restart",
+      closeAfterRun: true
+    };
+
+    const stabilitySettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-stable" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
+
+    const firstBrowser = browser();
+    connectToStartedBrowserMock.mockResolvedValueOnce(firstBrowser as never);
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {
+        ua: { value: "ua-first", source: "runtime" }
+      }
+    });
+
+    stopProfileMock.mockRejectedValueOnce(new Error("Profile is not open"));
+
+    const result = await runFingerprintCompare(restartConfig);
+
+    expect(stopProfileMock).toHaveBeenCalledTimes(1);
+    const profileResult = result.report.results[0];
+    expect(profileResult.notes.join(" ")).not.toContain("Profile is not open");
+    expect(profileResult.browserScan?.status).toBe("ok");
+  });
+
   it("restarts profile for each stability run when stabilityMode is restart", async () => {
     const restartConfig: ToolConfig = {
       ...config,
