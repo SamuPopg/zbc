@@ -123,16 +123,20 @@ describe("writeReportDiff", () => {
     expect(html).toContain("均未获取");
   });
 
-  it("HTML values are hidden in details by default", async () => {
+  it("changed values are rendered inline without details", async () => {
     const data = makeMinimalDiffData();
     const { htmlPath } = await writeReportDiff(data, tmpDir);
     const html = await readFile(htmlPath, "utf8");
 
-    expect(html).toContain("<details>");
-    // Values should only appear inside <pre> tags within <details>
-    // not as visible text in the main flow
-    const detailsBlockMatch = html.match(/<details>[\s\S]*?<\/details>/);
-    expect(detailsBlockMatch).not.toBeNull();
+    // changed source values are directly visible
+    expect(html).toContain("bs-old");
+    expect(html).toContain("bs-new");
+    // no <details> / <summary> elements
+    expect(html).not.toContain("<details>");
+    expect(html).not.toContain("<summary>");
+    // unchanged source values are NOT visible
+    expect(html).not.toContain("old-ua");
+    expect(html).not.toContain("probe-old");
   });
 
   it("HTML contains representative main fields", async () => {
@@ -305,12 +309,13 @@ describe("writeReportDiff", () => {
     // HTML contains field row
     expect(html).toContain("User Agent");
     expect(html).toContain("ua");
-    // HTML contains details block
-    expect(html).toContain("<details>");
-    // HTML contains changed source values
+    // HTML contains inline changed source values
     expect(html).toContain("bs-old");
     expect(html).toContain("bs-new");
-    // HTML does NOT contain unchanged source values
+    // no <details> / <summary> elements
+    expect(html).not.toContain("<details>");
+    expect(html).not.toContain("<summary>");
+    // unchanged source values are NOT visible
     expect(html).not.toContain("setting-same");
     expect(html).not.toContain("probe-same");
     // JSON unchanged field values still preserved

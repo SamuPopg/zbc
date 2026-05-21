@@ -71,11 +71,11 @@ function buildSourceCell(source: DiffSource, diff: ProfileDiff["fields"][number]
   const statusBlock = statusHtml(diff.status);
   const sourceLabel = source === "settings" ? "设置值" : source === "browserScan" ? "BS值" : "Probe值";
 
-  const shouldRenderDetails =
+  const shouldRenderValues =
     isImportantStatus(diff.status) &&
     (diff.baselineValue !== undefined || diff.currentValue !== undefined);
 
-  if (!shouldRenderDetails) {
+  if (!shouldRenderValues) {
     return `<div class="source-cell source-${source}">
       <span class="source-label">${sourceLabel}</span>
       ${statusBlock}
@@ -85,19 +85,16 @@ function buildSourceCell(source: DiffSource, diff: ProfileDiff["fields"][number]
   return `<div class="source-cell source-${source}">
     <span class="source-label">${sourceLabel}</span>
     ${statusBlock}
-    <details>
-      <summary>查看旧值 / 新值</summary>
-      <div class="diff-values">
-        <div class="diff-side baseline">
-          <span class="diff-side-label">旧报告</span>
-          <pre>${escapeHtml(formatValueCompact(diff.baselineValue))}</pre>
-        </div>
-        <div class="diff-side current">
-          <span class="diff-side-label">新报告</span>
-          <pre>${escapeHtml(formatValueCompact(diff.currentValue))}</pre>
-        </div>
+    <div class="inline-diff-values">
+      <div class="diff-side baseline">
+        <span class="diff-side-label">旧报告</span>
+        <pre>${escapeHtml(formatValueCompact(diff.baselineValue))}</pre>
       </div>
-    </details>
+      <div class="diff-side current">
+        <span class="diff-side-label">新报告</span>
+        <pre>${escapeHtml(formatValueCompact(diff.currentValue))}</pre>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -474,15 +471,10 @@ function buildHtml(data: ReportDiffData): string {
     .field-row.field-soft { background: rgba(0, 113, 227, 0.04); }
     .field-row.field-soft:hover { background: rgba(0, 113, 227, 0.08); }
     .field-row.field-none { }
-    .diff-values { display: flex; gap: 12px; margin-top: 8px; }
+    .inline-diff-values { display: flex; gap: 12px; margin-top: 8px; }
     .diff-side { flex: 1; }
     .diff-side-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
-    details { margin: 0; }
-    details summary { cursor: pointer; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 14px; color: var(--accent); padding: 4px 0; list-style: none; }
-    details summary::-webkit-details-marker { display: none; }
-    details summary::before { content: "▶ "; font-size: 12px; }
-    details[open] summary::before { content: "▼ "; font-size: 12px; }
-    details pre { margin: 6px 0 0; padding: 8px; background: var(--page-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 14px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; }
+    .inline-diff-values pre { margin: 6px 0 0; padding: 8px; background: var(--page-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 14px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; }
     .empty-diff { padding: 16px 24px; font-size: 14px; color: var(--muted); }
     .report-footer { padding: 20px 40px; border-top: 1px solid var(--border); font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   </style>
