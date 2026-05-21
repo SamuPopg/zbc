@@ -294,79 +294,148 @@ function shouldExcludeKey(key: string): boolean {
   return false;
 }
 
-function collectExtraFields(
-  result: ProfileRunResult,
-  basePath: string,
+function diffExtraField(
+  baselineVal: unknown,
+  currentVal: unknown,
+  makePath: () => string,
   out: DeepDiffEntry[]
 ): void {
-  const settingsExtra = result.settings?.settings ?? {};
-  for (const key of Object.keys(settingsExtra)) {
-    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
-    if (shouldExcludeKey(key)) continue;
-    const path = `${basePath}.settings.settings.${key}`;
-    out.push({
-      path,
-      status: "added",
-      currentValue: settingsExtra[key],
-    });
-  }
-
-  const bsValues = result.browserScan?.values ?? {};
-  for (const key of Object.keys(bsValues)) {
-    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
-    if (shouldExcludeKey(key)) continue;
-    const path = `${basePath}.browserScan.values.${key}`;
-    out.push({
-      path,
-      status: "added",
-      currentValue: bsValues[key]?.value,
-    });
-  }
-
-  const probeValues = result.browserScan?.probe?.values ?? {};
-  for (const key of Object.keys(probeValues)) {
-    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
-    if (shouldExcludeKey(key)) continue;
-    const path = `${basePath}.browserScan.probe.values.${key}`;
-    out.push({
-      path,
-      status: "added",
-      currentValue: probeValues[key]?.value,
-    });
-  }
-
-  const snapshot = result.browserScan?.componentSnapshot;
-  if (snapshot) {
-    collectDeepDiff(snapshot, `${basePath}.browserScan.componentSnapshot`, out);
-  }
-
-  const probeRaw = result.browserScan?.probe?.raw;
-  if (probeRaw) {
-    collectDeepDiff(probeRaw, `${basePath}.browserScan.probe.raw`, out);
-  }
-
-  const stabilityFields = result.stability?.fields;
-  if (stabilityFields) {
-    collectDeepDiff(stabilityFields as unknown as Record<string, unknown>, `${basePath}.stability.fields`, out);
+  const status = compareValues(baselineVal, currentVal);
+  if (status !== "unchanged") {
+    out.push({ path: makePath(), status, baselineValue: baselineVal, currentValue: currentVal });
   }
 }
 
-function collectDeepDiff(
-  obj: Record<string, unknown>,
+function collectExtraFieldsDiff(
+  baselineResult: ProfileRunResult | undefined,
+  currentResult: ProfileRunResult | undefined,
+  profileId: string,
+  out: DeepDiffEntry[]
+): void {
+  const presence: ProfileDiff["presence"] =
+    !baselineResult ? "current_only" : !currentResult ? "baseline_only" : "both";
+  if (presence !== "both") return;
+
+  const base = `profiles.${profileId}`;
+
+  // settings extra fields
+  const bsExSettings = baselineResult!.settings?.settings ?? {};
+  const csExSettings = currentResult!.settings?.settings ?? {};
+  const allSettingKeys = new Set([...Object.keys(bsExSettings), ...Object.keys(csExSettings)]);
+  for (const key of allSettingKeys) {
+    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
+    if (shouldExcludeKey(key)) continue;
+    const p = () => `${base}.extraFields.settings.settings.${key}`;
+    diffExtraField(bsExSettings[key], csExSettings[key], p, out);
+  }
+
+  // browserScan.values extra fields
+  const bsExBS = baselineResult!.browserScan?.values ?? {};
+  const csExBS = currentResult!.browserScan?.values ?? {};
+  const allBSKeys = new Set([...Object.keys(bsExBS), ...Object.keys(csExBS)]);
+  for (const key of allBSKeys) {
+    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
+    if (shouldExcludeKey(key)) continue;
+    const p = () => `${base}.extraFields.browserScan.values.${key}`;
+    diffExtraField(bsExBS[key]?.value, csExBS[key]?.value, p, out);
+  }
+
+  // probe.values extra fields
+  const bsExProbe = baselineResult!.browserScan?.probe?.values ?? {};
+  const csExProbe = currentResult!.browserScan?.probe?.values ?? {};
+  const allProbeKeys = new Set([...Object.keys(bsExProbe), ...Object.keys(csExProbe)]);
+  for (const key of allProbeKeys) {
+    if (REPORT_FINGERPRINT_KEYS.includes(key as typeof REPORT_FINGERPRINT_KEYS[number])) continue;
+    if (shouldExcludeKey(key)) continue;
+    const p = () => `${base}.extraFields.probe.values.${key}`;
+    diffExtraField(bsExProbe[key]?.value, csExProbe[key]?.value, p, out);
+  }
+}
+
+function diffDeepObj(
+  baseline: unknown,
+  current: unknown,
   basePath: string,
   out: DeepDiffEntry[]
 ): void {
-  for (const [key, value] of Object.entries(obj)) {
-    if (shouldExcludeKey(key)) continue;
-    const path = `${basePath}.${key}`;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      collectDeepDiff(value as Record<string, unknown>, path, out);
-    } else if (Array.isArray(value)) {
-      out.push({ path, status: "added", currentValue: value });
-    } else {
-      out.push({ path, status: "added", currentValue: value });
-    }
+  const bMissing = isMissing(baseline);
+  const cMissing = isMissing(current);
+
+  if (bMissing && cMissing) return;
+  if (bMissing) {
+    out.push({ path: basePath, status: "added", currentValue: current });
+    return;
   }
+  if (cMissing) {
+    out.push({ path: basePath, status: "removed", baselineValue: baseline });
+    return;
+  }
+
+  if (typeof baseline !== typeof current) {
+    out.push({ path: basePath, status: "changed", baselineValue: baseline, currentValue: current });
+    return;
+  }
+
+  if (Array.isArray(baseline) && Array.isArray(current)) {
+    const len = Math.max(baseline.length, current.length);
+    for (let i = 0; i < len; i++) {
+      diffDeepObj(baseline[i], current[i], `${basePath}[${i}]`, out);
+    }
+    return;
+  }
+
+  if (typeof baseline === "object" && baseline !== null && current !== null) {
+    const bObj = baseline as Record<string, unknown>;
+    const cObj = current as Record<string, unknown>;
+    const allKeys = new Set([...Object.keys(bObj), ...Object.keys(cObj)]);
+    for (const key of allKeys) {
+      if (shouldExcludeKey(key)) continue;
+      diffDeepObj(bObj[key], cObj[key], `${basePath}.${key}`, out);
+    }
+    return;
+  }
+
+  if (baseline === current) return;
+  out.push({ path: basePath, status: "changed", baselineValue: baseline, currentValue: current });
+}
+
+function collectSnapshotDiffs(
+  baselineResult: ProfileRunResult,
+  currentResult: ProfileRunResult,
+  profileId: string,
+  out: DeepDiffEntry[]
+): void {
+  const base = `profiles.${profileId}`;
+  const bs = baselineResult.browserScan?.componentSnapshot;
+  const cs = currentResult.browserScan?.componentSnapshot;
+  if (!bs && !cs) return;
+  diffDeepObj(bs, cs, `${base}.browserScan.componentSnapshot`, out);
+}
+
+function collectProbeRawDiffs(
+  baselineResult: ProfileRunResult,
+  currentResult: ProfileRunResult,
+  profileId: string,
+  out: DeepDiffEntry[]
+): void {
+  const base = `profiles.${profileId}`;
+  const bs = baselineResult.browserScan?.probe?.raw;
+  const cs = currentResult.browserScan?.probe?.raw;
+  if (!bs && !cs) return;
+  diffDeepObj(bs, cs, `${base}.browserScan.probe.raw`, out);
+}
+
+function collectStabilityDiffs(
+  baselineResult: ProfileRunResult,
+  currentResult: ProfileRunResult,
+  profileId: string,
+  out: DeepDiffEntry[]
+): void {
+  const base = `profiles.${profileId}`;
+  const bs = baselineResult.stability?.fields;
+  const cs = currentResult.stability?.fields;
+  if (!bs && !cs) return;
+  diffDeepObj(bs as unknown, cs as unknown, `${base}.stability.fields`, out);
 }
 
 function buildExtraDiffs(
@@ -389,10 +458,12 @@ function buildExtraDiffs(
 
     if (presence !== "both") continue;
 
-    if (currentResult) {
-      collectExtraFields(currentResult, `profiles.${profileId}`, diffs);
-    }
+    // presence === "both" guarantees both are defined
+    collectExtraFieldsDiff(baselineResult!, currentResult!, profileId, diffs);
+    collectSnapshotDiffs(baselineResult!, currentResult!, profileId, diffs);
+    collectProbeRawDiffs(baselineResult!, currentResult!, profileId, diffs);
+    collectStabilityDiffs(baselineResult!, currentResult!, profileId, diffs);
   }
 
-  return diffs.filter((d) => d.status !== "unchanged");
+  return diffs;
 }

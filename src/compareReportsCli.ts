@@ -1,5 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ReportData } from "./types.js";
 import { buildReportDiff } from "./reportDiff.js";
 import { writeReportDiff } from "./reportDiffWriter.js";
@@ -96,4 +97,11 @@ export async function main(argv: string[]): Promise<void> {
     console.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
   }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
 }
