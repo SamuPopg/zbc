@@ -16,6 +16,20 @@ const STATUS_LABELS: Record<string, string> = {
   both_missing: "均未获取",
 };
 
+const IMPORTANT_STATUSES = new Set(["changed", "added", "removed"]);
+
+function isImportantStatus(status: string): boolean {
+  return IMPORTANT_STATUSES.has(status);
+}
+
+function isImportantField(field: ProfileDiff["fields"][number]): boolean {
+  return (
+    isImportantStatus(field.sources.settings.status) ||
+    isImportantStatus(field.sources.browserScan.status) ||
+    isImportantStatus(field.sources.probe.status)
+  );
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
     switch (char) {
@@ -55,19 +69,21 @@ function formatValueCompact(value: unknown): string {
 
 function buildSourceCell(source: DiffSource, diff: ProfileDiff["fields"][number]["sources"][DiffSource]): string {
   const statusBlock = statusHtml(diff.status);
-  const hasDetails =
-    diff.baselineValue !== undefined ||
-    diff.currentValue !== undefined;
+  const sourceLabel = source === "settings" ? "设置值" : source === "browserScan" ? "BS值" : "Probe值";
 
-  if (!hasDetails) {
+  const shouldRenderDetails =
+    isImportantStatus(diff.status) &&
+    (diff.baselineValue !== undefined || diff.currentValue !== undefined);
+
+  if (!shouldRenderDetails) {
     return `<div class="source-cell source-${source}">
-      <span class="source-label">${source === "settings" ? "设置值" : source === "browserScan" ? "BS值" : "Probe值"}</span>
+      <span class="source-label">${sourceLabel}</span>
       ${statusBlock}
     </div>`;
   }
 
   return `<div class="source-cell source-${source}">
-    <span class="source-label">${source === "settings" ? "设置值" : source === "browserScan" ? "BS值" : "Probe值"}</span>
+    <span class="source-label">${sourceLabel}</span>
     ${statusBlock}
     <details>
       <summary>查看旧值 / 新值</summary>
@@ -110,26 +126,6 @@ function buildProfileSection(profile: ProfileDiff): string {
     </div>`;
   }
 
-  const rows = fields.map((field) => {
-    const { field: f, sources, highlight } = field;
-    const label = FINGERPRINT_LABELS[f] ?? { label: f, key: f };
-    const hcls = highlightClass(highlight);
-
-    return `<tr class="field-row${hcls}">
-      <th class="item-col sticky-col">
-        <div class="item-label">${escapeHtml(label.label)}</div>
-        <div class="item-key">${escapeHtml(f)}</div>
-      </th>
-      <td class="item-col">
-        <div class="sources-row">
-          ${buildSourceCell("settings", sources.settings)}
-          ${buildSourceCell("browserScan", sources.browserScan)}
-          ${buildSourceCell("probe", sources.probe)}
-        </div>
-      </td>
-    </tr>`;
-  }).join("\n");
-
   const summaryParts = (["settings", "browserScan", "probe"] as DiffSource[]).map((src) => {
     const s = summary[src];
     const srcLabel = src === "settings" ? "设置值" : src === "browserScan" ? "BS值" : "Probe值";
@@ -143,7 +139,40 @@ function buildProfileSection(profile: ProfileDiff): string {
     return `<div class="summary-source"><span class="summary-source-label">${srcLabel}</span>: ${parts.join(" / ")}</div>`;
   }).join("");
 
-  return `<div class="profile-section presence-both">
+  if (presence === "both") {
+    const visibleFields = fields.filter(isImportantField);
+
+    if (visibleFields.length === 0) {
+      return `<div class="profile-section presence-both">
+      <div class="profile-header">
+        <span class="profile-id">${escapeHtml(profileId)}</span>
+      </div>
+      <div class="profile-summary">${summaryParts}</div>
+      <div class="empty-diff">主指纹项无变化</div>
+    </div>`;
+    }
+
+    const rows = visibleFields.map((field) => {
+      const { field: f, sources, highlight } = field;
+      const label = FINGERPRINT_LABELS[f] ?? { label: f, key: f };
+      const hcls = highlightClass(highlight);
+
+      return `<tr class="field-row${hcls}">
+      <th class="item-col sticky-col">
+        <div class="item-label">${escapeHtml(label.label)}</div>
+        <div class="item-key">${escapeHtml(f)}</div>
+      </th>
+      <td class="item-col">
+        <div class="sources-row">
+          ${buildSourceCell("settings", sources.settings)}
+          ${buildSourceCell("browserScan", sources.browserScan)}
+          ${buildSourceCell("probe", sources.probe)}
+        </div>
+      </td>
+    </tr>`;
+    }).join("\n");
+
+    return `<div class="profile-section presence-both">
     <div class="profile-header">
       <span class="profile-id">${escapeHtml(profileId)}</span>
     </div>
@@ -160,6 +189,9 @@ ${rows}
       </tbody>
     </table>
   </div>`;
+  }
+
+  return "";
 }
 
 const FINGERPRINT_LABELS: Record<string, { label: string; key: string }> = {
@@ -451,6 +483,7 @@ function buildHtml(data: ReportDiffData): string {
     details summary::before { content: "▶ "; font-size: 12px; }
     details[open] summary::before { content: "▼ "; font-size: 12px; }
     details pre { margin: 6px 0 0; padding: 8px; background: var(--page-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 14px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; }
+    .empty-diff { padding: 16px 24px; font-size: 14px; color: var(--muted); }
     .report-footer { padding: 20px 40px; border-top: 1px solid var(--border); font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   </style>
 </head>

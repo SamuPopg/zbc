@@ -218,4 +218,161 @@ describe("writeReportDiff", () => {
     expect(p1.fields[0].sources.browserScan.baselineValue).toBe("bs-old");
     expect(p1.fields[0].sources.browserScan.currentValue).toBe("bs-new");
   });
+
+  it("unchanged field is not rendered in HTML row or details", async () => {
+    const data: ReportDiffData = {
+      generatedAt: "2026-05-21T10:00:00.000Z",
+      baselineReport: { path: "reports/old.json", generatedAt: "2026-05-20T10:00:00.000Z", profileIds: ["p1"] },
+      currentReport: { path: "reports/new.json", generatedAt: "2026-05-21T10:00:00.000Z", profileIds: ["p1"] },
+      summary: {
+        settings: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        browserScan: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        probe: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+      },
+      profiles: [{
+        profileId: "p1",
+        presence: "both",
+        fields: [{
+          field: "ua",
+          sources: {
+            settings: { status: "unchanged", baselineValue: "old-ua", currentValue: "old-ua" },
+            browserScan: { status: "unchanged", baselineValue: "bs-same", currentValue: "bs-same" },
+            probe: { status: "unchanged", baselineValue: "probe-same", currentValue: "probe-same" },
+          },
+          highlight: "none",
+        }],
+        summary: {
+          settings: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+          browserScan: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+          probe: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        },
+      }],
+      extraDiffs: [],
+    };
+    const { htmlPath, jsonPath } = await writeReportDiff(data, tmpDir);
+    const html = await readFile(htmlPath, "utf8");
+    const json = JSON.parse(await readFile(jsonPath, "utf8"));
+
+    // HTML must not contain the unchanged field value strings
+    expect(html).not.toContain("old-ua");
+    expect(html).not.toContain("bs-same");
+    expect(html).not.toContain("probe-same");
+    // HTML must not contain the field row label
+    expect(html).not.toContain("User Agent");
+    expect(html).not.toContain("ua");
+    // HTML should show empty-diff message
+    expect(html).toContain("主指纹项无变化");
+    // JSON must still contain the full field data
+    expect(json.profiles[0].fields[0].sources.settings.baselineValue).toBe("old-ua");
+    expect(json.profiles[0].fields[0].sources.browserScan.baselineValue).toBe("bs-same");
+    expect(json.profiles[0].fields[0].sources.probe.baselineValue).toBe("probe-same");
+  });
+
+  it("changed field shows details with changed source values only", async () => {
+    const data: ReportDiffData = {
+      generatedAt: "2026-05-21T10:00:00.000Z",
+      baselineReport: { path: "reports/old.json", generatedAt: "2026-05-20T10:00:00.000Z", profileIds: ["p1"] },
+      currentReport: { path: "reports/new.json", generatedAt: "2026-05-21T10:00:00.000Z", profileIds: ["p1"] },
+      summary: {
+        settings: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        browserScan: { unchanged: 0, changed: 1, added: 0, removed: 0, both_missing: 0 },
+        probe: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+      },
+      profiles: [{
+        profileId: "p1",
+        presence: "both",
+        fields: [{
+          field: "ua",
+          sources: {
+            settings: { status: "unchanged", baselineValue: "setting-same", currentValue: "setting-same" },
+            browserScan: { status: "changed", baselineValue: "bs-old", currentValue: "bs-new" },
+            probe: { status: "unchanged", baselineValue: "probe-same", currentValue: "probe-same" },
+          },
+          highlight: "strong",
+        }],
+        summary: {
+          settings: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+          browserScan: { unchanged: 0, changed: 1, added: 0, removed: 0, both_missing: 0 },
+          probe: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        },
+      }],
+      extraDiffs: [],
+    };
+    const { htmlPath, jsonPath } = await writeReportDiff(data, tmpDir);
+    const html = await readFile(htmlPath, "utf8");
+    const json = JSON.parse(await readFile(jsonPath, "utf8"));
+
+    // HTML contains field row
+    expect(html).toContain("User Agent");
+    expect(html).toContain("ua");
+    // HTML contains details block
+    expect(html).toContain("<details>");
+    // HTML contains changed source values
+    expect(html).toContain("bs-old");
+    expect(html).toContain("bs-new");
+    // HTML does NOT contain unchanged source values
+    expect(html).not.toContain("setting-same");
+    expect(html).not.toContain("probe-same");
+    // JSON unchanged field values still preserved
+    expect(json.profiles[0].fields[0].sources.settings.baselineValue).toBe("setting-same");
+    expect(json.profiles[0].fields[0].sources.probe.baselineValue).toBe("probe-same");
+  });
+
+  it("added and removed fields are rendered", async () => {
+    const data: ReportDiffData = {
+      generatedAt: "2026-05-21T10:00:00.000Z",
+      baselineReport: { path: "reports/old.json", generatedAt: "2026-05-20T10:00:00.000Z", profileIds: ["p1"] },
+      currentReport: { path: "reports/new.json", generatedAt: "2026-05-21T10:00:00.000Z", profileIds: ["p1"] },
+      summary: {
+        settings: { unchanged: 0, changed: 0, added: 1, removed: 1, both_missing: 0 },
+        browserScan: { unchanged: 0, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        probe: { unchanged: 0, changed: 0, added: 0, removed: 0, both_missing: 0 },
+      },
+      profiles: [{
+        profileId: "p1",
+        presence: "both",
+        fields: [
+          {
+            field: "ua",
+            sources: {
+              settings: { status: "added", baselineValue: undefined, currentValue: "new-ua-value" },
+              browserScan: { status: "unchanged", baselineValue: "x", currentValue: "x" },
+              probe: { status: "unchanged", baselineValue: "x", currentValue: "x" },
+            },
+            highlight: "strong",
+          },
+          {
+            field: "timezone",
+            sources: {
+              settings: { status: "removed", baselineValue: "old-timezone", currentValue: undefined },
+              browserScan: { status: "unchanged", baselineValue: "x", currentValue: "x" },
+              probe: { status: "unchanged", baselineValue: "x", currentValue: "x" },
+            },
+            highlight: "strong",
+          },
+        ],
+        summary: {
+          settings: { unchanged: 0, changed: 0, added: 1, removed: 1, both_missing: 0 },
+          browserScan: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+          probe: { unchanged: 1, changed: 0, added: 0, removed: 0, both_missing: 0 },
+        },
+      }],
+      extraDiffs: [],
+    };
+    const { htmlPath, jsonPath } = await writeReportDiff(data, tmpDir);
+    const html = await readFile(htmlPath, "utf8");
+    const json = JSON.parse(await readFile(jsonPath, "utf8"));
+
+    // added field row visible with new value
+    expect(html).toContain("User Agent");
+    expect(html).toContain("new-ua-value");
+    // removed field row visible with old value
+    expect(html).toContain("时区");
+    expect(html).toContain("old-timezone");
+    // JSON preserves full data
+    expect(json.profiles[0].fields[0].sources.settings.baselineValue).toBeUndefined();
+    expect(json.profiles[0].fields[0].sources.settings.currentValue).toBe("new-ua-value");
+    expect(json.profiles[0].fields[1].sources.settings.baselineValue).toBe("old-timezone");
+    expect(json.profiles[0].fields[1].sources.settings.currentValue).toBeUndefined();
+  });
 });
