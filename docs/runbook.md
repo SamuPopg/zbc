@@ -328,6 +328,66 @@ HTML 备注可能来自以下来源，查看备注时可先判断来源类型：
 
 **注意**：当前 HTML 备注区域可能比较长，因为字段级备注（每个指纹项的采集情况）和 profile 级备注（profile 整体运行状态）都会进入同一个备注区域。查看时需区分备注来源类型，结合字段名、状态和备注综合判断。
 
+## 报告差异对比
+
+对比两份已经生成的指纹检测报告，输出差异 HTML 和 JSON。该功能**不启动 AdsPower，不访问 BrowserScan，不重新采集**，只读取已有报告 JSON 比较设置值、BS值、Probe值是否变化。
+
+### 使用方式
+
+```powershell
+npm.cmd run compare-reports -- reports\old.json reports\new.json
+npm.cmd run compare-reports -- reports\old.html reports\new.html
+```
+
+第一个路径是旧报告/基准报告，第二个路径是新报告/当前报告。
+
+### 输出位置
+
+输出固定写入 `diff-reports/` 子目录，文件名包含生成时间戳：
+
+```
+diff-reports/diff-report-2026-05-21Txx-xx-xx-xxxZ.html
+diff-reports/diff-report-2026-05-21Txx-xx-xx-xxxZ.json
+```
+
+### 状态词说明
+
+| 状态 | 含义 |
+|---|---|
+| `无变化` | 旧报告和新报告中该值相同 |
+| `有变化` | 旧报告和新报告中该值不同 |
+| `新增值` | 旧报告中缺失，新报告中有值 |
+| `丢失值` | 旧报告中有值，新报告中缺失 |
+| `均未获取` | 两边都没有值 |
+
+### 三类来源对比
+
+对每个 profile 的每个指纹字段，比较三类来源：
+
+1. **设置值**：`settings.settings[field]`
+2. **BS值**：`browserScan.values[field].value`
+3. **Probe值**：`browserScan.probe.values[field].value`
+
+Probe 仍为辅助来源，不能顶替 BS。如果只有 Probe 变化，字段高亮为"soft"；如果设置值或 BS 值变化，高亮为"strong"。
+
+### 轻度归一化比较规则
+
+- `undefined`、`null`、字段不存在，都视为缺失。
+- 字符串只 trim 首尾空白后比较，不做其他规范化。
+- 对象按结构比较，key 顺序不影响结果。
+- 数组按顺序比较，顺序不同算不同。
+- 深层 diff 排除 `rawText`、`browser_scan_raw_text` 以及含 `rawText` 的 key。
+
+### 兼容旧报告
+
+如果报告 JSON 缺少 `probe`、`componentSnapshot`、`stability`，按缺失处理，不阻塞设置值/BS值对比。如果缺少 `profileIds`，从 `results[].profileId` 推导。
+
+### 错误处理
+
+- 报告路径不存在：报错并退出
+- 传 HTML 但找不到同名 JSON：报错并退出
+- JSON 解析失败或缺少 `results[]`：报错并退出
+
 ## 验证命令
 
 ```powershell

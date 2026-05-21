@@ -195,6 +195,25 @@ HTML 备注可能来自：
 
 同一浏览器环境下，只改了代理信息或 WebGL 元数据配置，BrowserScan 的 webgl、Client Rects、经度、纬度、GPU 等 BS 值发生变化，通常是符合采集原理的正常现象，不是环境配置失败。详细解释和排查方式见 [runbook](docs/runbook.md#为什么只改代理或-webgl-后部分-bs-值会变化)。
 
+## 报告差异对比
+
+对比两份已生成的指纹检测报告，输出差异 HTML 和 JSON。该功能**不启动 AdsPower，不访问 BrowserScan，不重新采集**。
+
+```powershell
+npm.cmd run compare-reports -- reports\old.json reports\new.json
+npm.cmd run compare-reports -- reports\old.html reports\new.html
+```
+
+第一个路径为旧报告/基准报告，第二个为新报告/当前报告。HTML 路径会自动查找同名 JSON。
+
+输出到 `diff-reports/diff-report-<timestamp>.html` 和 `.json`。
+
+状态词：`无变化` `有变化` `新增值` `丢失值` `均未获取`。
+
+三类来源对比：设置值、BS值、Probe值。Probe 为辅助，不能顶替 BS。
+
+详细说明见 [runbook](docs/runbook.md#报告差异对比)。
+
 ## 验证
 
 ```powershell
