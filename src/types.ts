@@ -66,6 +66,8 @@ export interface LocalApiStartResponse {
   debugPort?: string | number;
   wsPuppeteer?: string;
   webdriver?: string;
+  wsSelenium?: string;
+  marionettePort?: string | number;
   raw: unknown;
 }
 

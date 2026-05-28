@@ -48,6 +48,26 @@ describe("startProfile", () => {
       JSON.stringify({ profile_id: "PROFILE_ID_1" })
     );
   });
+
+  it("parses ws.selenium and marionette_port for Firefox profiles", async () => {
+    const fetchMock = vi.fn<FetchArgs, Promise<Response>>(async () => ({
+      ok: true,
+      json: async () => ({
+        code: 0,
+        data: {
+          debug_port: "8346",
+          ws: { selenium: "127.0.0.1:8346" },
+          marionette_port: "8345"
+        }
+      })
+    }) as Response);
+
+    const result = await startProfile(config, "PROFILE_ID_FIREFOX", fetchMock as unknown as typeof fetch);
+
+    expect(result.profileId).toBe("PROFILE_ID_FIREFOX");
+    expect(result.wsSelenium).toBe("127.0.0.1:8346");
+    expect(result.marionettePort).toBe("8345");
+  });
 });
 
 describe("stopProfile", () => {

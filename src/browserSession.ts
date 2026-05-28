@@ -1,5 +1,9 @@
 import { chromium, type Browser } from "playwright";
-import type { LocalApiStartResponse } from "./types.js";
+import { connectSelenium } from "./seleniumAdapter.js";
+import type { LocalApiStartResponse, ProfileSettings } from "./types.js";
+import type { BrowserAutomation } from "./browserAutomation.js";
+
+export type BrowserType = "chromium" | "firefox" | "unknown";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -15,6 +19,25 @@ const DEFAULT_CONNECT_RETRY_DELAY_MS = 1000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function detectBrowserType(settings: ProfileSettings): BrowserType {
+  const s = settings.settings;
+  const browser = s?.browser as string | undefined;
+  const browserKernelConfig = isRecord(s?.browser_kernel_config) ? s.browser_kernel_config : undefined;
+  const type = browserKernelConfig?.type as string | undefined;
+
+  if (browser === "firefox" || type === "firefox") {
+    return "firefox";
+  }
+  if (browser === "chromium" || browser === "chrome" || type === "chromium" || type === "chrome") {
+    return "chromium";
+  }
+  return "unknown";
 }
 
 export async function connectToStartedBrowser(
@@ -62,4 +85,20 @@ export async function connectToStartedBrowser(
   throw new Error(
     `profile ${started.profileId} failed to connect after ${maxAttempts} attempt(s) with ${wsPart}; ${debugPart}`
   );
+}
+
+export async function connectAutomation(
+  started: LocalApiStartResponse,
+  settings: ProfileSettings,
+  options: BrowserConnectOptions = {}
+): Promise<BrowserAutomation> {
+  const browserType = detectBrowserType(settings);
+
+  if (browserType === "firefox") {
+    return connectSelenium(started);
+  }
+
+  const browser = await connectToStartedBrowser(started, options);
+  const { PlaywrightAutomation } = await import("./playwrightAdapter.js");
+  return new PlaywrightAutomation(browser);
 }

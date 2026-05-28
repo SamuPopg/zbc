@@ -1,5 +1,5 @@
 import { fetchProfileSettings } from "./adspowerBackend.js";
-import { connectToStartedBrowser } from "./browserSession.js";
+import { connectAutomation } from "./browserSession.js";
 import { collectBrowserScan } from "./browserScanCollector.js";
 import { startProfile, stopProfile } from "./localApi.js";
 import { buildProbeChecks } from "./probeValidation.js";
@@ -12,7 +12,7 @@ import type {
   ReportData,
   ToolConfig
 } from "./types.js";
-import type { Browser } from "playwright";
+import type { BrowserAutomation } from "./browserAutomation.js";
 
 export interface FingerprintCompareRunResult {
   report: ReportData;
@@ -76,15 +76,15 @@ function statusFor(
 
 async function closeBrowserIfNeeded(
   config: ToolConfig,
-  browser: Browser | undefined,
+  automation: BrowserAutomation | undefined,
   notes: string[]
 ): Promise<void> {
-  if (!config.closeAfterRun || !browser) {
+  if (!config.closeAfterRun || !automation) {
     return;
   }
 
   try {
-    await browser.close();
+    await automation.close();
   } catch (error) {
     notes.push(`关闭浏览器连接错误：${errorMessage(error)}`);
   }
@@ -112,9 +112,9 @@ async function stopProfileIfNeeded(
 async function collectBrowserScanWithChecks(
   config: ToolConfig,
   settings: ProfileSettings,
-  browser: Browser
+  automation: BrowserAutomation
 ): Promise<BrowserScanResult> {
-  const scan = await collectBrowserScan(config, settings.profileId, browser);
+  const scan = await collectBrowserScan(config, settings.profileId, automation);
   if (scan.probe) {
     scan.probe.checks = buildProbeChecks(settings.settings, scan.probe.values);
   }
@@ -126,18 +126,18 @@ async function collectSessionStabilityScans(
   settings: ProfileSettings,
   notes: string[]
 ): Promise<BrowserScanResult[]> {
-  let browser: Browser | undefined;
+  let automation: BrowserAutomation | undefined;
   try {
     const started = await startProfile(config, settings.profileId);
-    browser = await connectToStartedBrowser(started);
+    automation = await connectAutomation(started, settings);
 
     const scans: BrowserScanResult[] = [];
     for (let i = 0; i < config.stabilityRuns; i += 1) {
-      scans.push(await collectBrowserScanWithChecks(config, settings, browser));
+      scans.push(await collectBrowserScanWithChecks(config, settings, automation));
     }
     return scans;
   } finally {
-    await closeBrowserIfNeeded(config, browser, notes);
+    await closeBrowserIfNeeded(config, automation, notes);
     await stopProfileIfNeeded(config, settings.profileId, notes);
   }
 }
@@ -150,15 +150,15 @@ async function collectRestartStabilityScans(
   const scans: BrowserScanResult[] = [];
 
   for (let i = 0; i < config.stabilityRuns; i += 1) {
-    let browser: Browser | undefined;
+    let automation: BrowserAutomation | undefined;
     try {
       const started = await startProfile(config, settings.profileId);
-      browser = await connectToStartedBrowser(started);
-      scans.push(await collectBrowserScanWithChecks(config, settings, browser));
+      automation = await connectAutomation(started, settings);
+      scans.push(await collectBrowserScanWithChecks(config, settings, automation));
     } catch (error) {
       scans.push(failedBrowserScanResult(settings.profileId, error));
     } finally {
-      await closeBrowserIfNeeded(config, browser, notes);
+      await closeBrowserIfNeeded(config, automation, notes);
       await stopProfileIfNeeded(config, settings.profileId, notes);
     }
   }

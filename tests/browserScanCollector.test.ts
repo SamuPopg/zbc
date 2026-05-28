@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { collectBrowserScan } from "../src/browserScanCollector.js";
 import { ToolConfig } from "../src/types.js";
+import type { BrowserAutomation, BrowserAutomationPage } from "../src/browserAutomation.js";
 
 const config: ToolConfig = {
   backendBaseUrl: "https://api.example.test",
@@ -31,19 +32,23 @@ function encodeBrowserScanPayload(value: unknown): string {
     .join("");
 }
 
+function mockAutomation(page: BrowserAutomationPage): BrowserAutomation {
+  return {
+    newPage: vi.fn(async () => page),
+    close: vi.fn(async () => undefined)
+  };
+}
+
 describe("collectBrowserScan", () => {
   it("uses a dedicated page, keeps runtime probe out of BS values, and closes only the page", async () => {
     const rawText = "x".repeat(20005);
-    const existingPage = {
-      goto: vi.fn()
-    };
+    const existingPage = { goto: vi.fn() };
     const collectionPage = {
-      goto: vi.fn(),
-      waitForLoadState: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
-      locator: vi.fn(() => ({
-        innerText: vi.fn(async () => rawText)
-      })),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => rawText),
       evaluate: vi.fn(async (fn: unknown) => {
         if (String(fn).includes("_getComponent")) {
           return null;
@@ -57,26 +62,15 @@ describe("collectBrowserScan", () => {
       }),
       close: vi.fn(async () => undefined)
     };
-    const context = {
-      pages: vi.fn(() => [existingPage]),
-      newPage: vi.fn(async () => collectionPage)
-    };
-    const browser = {
-      contexts: vi.fn(() => [context]),
-      newContext: vi.fn()
-    };
 
-    const result = await collectBrowserScan(config, "PROFILE_ID_1", browser as never);
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
 
     expect(result.status).toBe("ok");
-    expect(context.newPage).toHaveBeenCalledTimes(1);
+    expect(automation.newPage).toHaveBeenCalledTimes(1);
     expect(existingPage.goto).not.toHaveBeenCalled();
-    expect(collectionPage.goto).toHaveBeenCalledWith(config.browserScanUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: config.timeoutMs
-    });
+    expect(collectionPage.goto).toHaveBeenCalledWith(config.browserScanUrl, config.timeoutMs);
     expect(collectionPage.close).toHaveBeenCalledTimes(1);
-    expect(browser.newContext).not.toHaveBeenCalled();
     expect(result.rawText).toHaveLength(20000);
     expect(result.values.browser_scan_raw_text.value).toBe(result.rawText);
     expect(result.values.dpr).toBeUndefined();
@@ -138,12 +132,11 @@ describe("collectBrowserScan", () => {
     };
     const encodedSnapshot = encodeBrowserScanPayload(snapshot);
     const collectionPage = {
-      goto: vi.fn(),
-      waitForLoadState: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
-      locator: vi.fn(() => ({
-        innerText: vi.fn(async () => "BrowserScan text")
-      })),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
       evaluate: vi.fn(async (fn: unknown) => {
         if (String(fn).includes("_getComponent")) {
           return encodedSnapshot;
@@ -157,15 +150,9 @@ describe("collectBrowserScan", () => {
       }),
       close: vi.fn(async () => undefined)
     };
-    const context = {
-      newPage: vi.fn(async () => collectionPage)
-    };
-    const browser = {
-      contexts: vi.fn(() => [context]),
-      newContext: vi.fn()
-    };
 
-    const result = await collectBrowserScan(config, "PROFILE_ID_1", browser as never);
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
 
     expect(result.status).toBe("ok");
     expect(result.values.webrtc).toEqual({
@@ -196,10 +183,8 @@ describe("collectBrowserScan", () => {
     expect(result.values.language.value).toBe("en-US");
     expect(result.values.timezone.value).toBe("America/New_York");
 
-    // componentSnapshot should be the full raw snapshot, including unmapped fields
     expect(result.componentSnapshot).toEqual(snapshot);
 
-    // Verify unmapped field is preserved (not stripped to only mapped fields)
     expect(result.componentSnapshot?.extraDiagnostics).toEqual({
       source: "BrowserScan raw component",
       nested: {
@@ -216,12 +201,11 @@ describe("collectBrowserScan", () => {
       }
     });
     const collectionPage = {
-      goto: vi.fn(),
-      waitForLoadState: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
-      locator: vi.fn(() => ({
-        innerText: vi.fn(async () => "BrowserScan text")
-      })),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
       evaluate: vi.fn(async (fn: unknown) => {
         if (String(fn).includes("_getComponent")) {
           return encodedSnapshot;
@@ -231,15 +215,9 @@ describe("collectBrowserScan", () => {
       }),
       close: vi.fn(async () => undefined)
     };
-    const context = {
-      newPage: vi.fn(async () => collectionPage)
-    };
-    const browser = {
-      contexts: vi.fn(() => [context]),
-      newContext: vi.fn()
-    };
 
-    const result = await collectBrowserScan(config, "PROFILE_ID_1", browser as never);
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
 
     expect(result.status).toBe("ok");
     expect(result.values.canvas).toEqual({

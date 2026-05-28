@@ -46,8 +46,9 @@ export async function startProfile(
     fetchImpl
   )) as {
     debug_port?: string | number;
-    ws?: { puppeteer?: string };
+    ws?: { puppeteer?: string; selenium?: string };
     webdriver?: string;
+    marionette_port?: string | number;
   };
 
   return {
@@ -55,6 +56,8 @@ export async function startProfile(
     debugPort: data.debug_port,
     wsPuppeteer: data.ws?.puppeteer,
     webdriver: data.webdriver,
+    wsSelenium: data.ws?.selenium,
+    marionettePort: data.marionette_port,
     raw: data
   };
 }

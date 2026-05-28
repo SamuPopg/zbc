@@ -11,10 +11,12 @@
     "compare-reports": "tsx src/compareReportsCli.ts"
   },
   "dependencies": {
-    "playwright": "^1.44.0"
+    "playwright": "^1.44.0",
+    "selenium-webdriver": "^4.23.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
+    "@types/selenium-webdriver": "^4.1.27",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"

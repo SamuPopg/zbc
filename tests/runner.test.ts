@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchProfileSettings } from "../src/adspowerBackend.js";
-import { connectToStartedBrowser } from "../src/browserSession.js";
+import { connectToStartedBrowser, connectAutomation } from "../src/browserSession.js";
 import { collectBrowserScan } from "../src/browserScanCollector.js";
 import { startProfile, stopProfile } from "../src/localApi.js";
 import { writeReports } from "../src/reportWriter.js";
@@ -11,6 +11,7 @@ import type {
   ProfileSettings,
   ToolConfig
 } from "../src/types.js";
+import type { BrowserAutomation } from "../src/browserAutomation.js";
 
 vi.mock("../src/adspowerBackend.js", () => ({
   fetchProfileSettings: vi.fn()
@@ -22,7 +23,8 @@ vi.mock("../src/localApi.js", () => ({
 }));
 
 vi.mock("../src/browserSession.js", () => ({
-  connectToStartedBrowser: vi.fn()
+  connectToStartedBrowser: vi.fn(),
+  connectAutomation: vi.fn()
 }));
 
 vi.mock("../src/browserScanCollector.js", () => ({
@@ -74,7 +76,7 @@ function browser() {
 const fetchProfileSettingsMock = vi.mocked(fetchProfileSettings);
 const startProfileMock = vi.mocked(startProfile);
 const stopProfileMock = vi.mocked(stopProfile);
-const connectToStartedBrowserMock = vi.mocked(connectToStartedBrowser);
+const connectAutomationMock = vi.mocked(connectAutomation);
 const collectBrowserScanMock = vi.mocked(collectBrowserScan);
 const writeReportsMock = vi.mocked(writeReports);
 
@@ -85,7 +87,8 @@ beforeEach(() => {
     profileId,
     raw: {}
   }) as LocalApiStartResponse);
-  connectToStartedBrowserMock.mockImplementation(async () => browser() as never);
+  connectAutomationMock.mockImplementation(async () => browser() as never);
+  connectAutomationMock.mockImplementation(async (_started, _settings) => browser() as unknown as BrowserAutomation);
   collectBrowserScanMock.mockImplementation(async (_config, profileId) =>
     browserScan(profileId)
   );
@@ -145,7 +148,7 @@ describe("runFingerprintCompare", () => {
     const result = await runFingerprintCompare(config);
 
     expect(startProfileMock).toHaveBeenCalledTimes(2);
-    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(2);
+    expect(connectAutomationMock).toHaveBeenCalledTimes(2);
     expect(collectBrowserScanMock).toHaveBeenCalledTimes(2);
     expect(result.report.profileIds).toEqual(["PROFILE_ID_1", "PROFILE_ID_2"]);
     expect(result.report.results).toMatchObject([
@@ -174,7 +177,7 @@ describe("runFingerprintCompare", () => {
   it("does not close the browser or stop profiles when closeAfterRun is false", async () => {
     const firstBrowser = browser();
     const secondBrowser = browser();
-    connectToStartedBrowserMock
+    connectAutomationMock
       .mockResolvedValueOnce(firstBrowser as never)
       .mockResolvedValueOnce(secondBrowser as never);
 
@@ -228,7 +231,7 @@ describe("runFingerprintCompare", () => {
     const result = await runFingerprintCompare(stabilityConfig);
 
     expect(startProfileMock).toHaveBeenCalledTimes(1);
-    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(1);
+    expect(connectAutomationMock).toHaveBeenCalledTimes(1);
     expect(collectBrowserScanMock).toHaveBeenCalledTimes(2);
     expect(stopProfileMock).toHaveBeenCalledTimes(1);
 
@@ -264,7 +267,7 @@ describe("runFingerprintCompare", () => {
     fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
 
     const secondBrowser = browser();
-    connectToStartedBrowserMock
+    connectAutomationMock
       .mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:14192"))
       .mockResolvedValueOnce(secondBrowser as never);
 
@@ -285,7 +288,7 @@ describe("runFingerprintCompare", () => {
     const result = await runFingerprintCompare(restartConfig);
 
     expect(startProfileMock).toHaveBeenCalledTimes(2);
-    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(2);
+    expect(connectAutomationMock).toHaveBeenCalledTimes(2);
     expect(collectBrowserScanMock).toHaveBeenCalledTimes(1);
     expect(stopProfileMock).toHaveBeenCalledTimes(2);
 
@@ -326,7 +329,7 @@ describe("runFingerprintCompare", () => {
     fetchProfileSettingsMock.mockResolvedValueOnce(stabilitySettings);
 
     const firstBrowser = browser();
-    connectToStartedBrowserMock.mockResolvedValueOnce(firstBrowser as never);
+    connectAutomationMock.mockResolvedValueOnce(firstBrowser as never);
 
     collectBrowserScanMock.mockResolvedValueOnce({
       profileId: "PROFILE_ID_1",
@@ -368,7 +371,7 @@ describe("runFingerprintCompare", () => {
 
     const firstBrowser = browser();
     const secondBrowser = browser();
-    connectToStartedBrowserMock
+    connectAutomationMock
       .mockResolvedValueOnce(firstBrowser as never)
       .mockResolvedValueOnce(secondBrowser as never);
 
@@ -395,7 +398,7 @@ describe("runFingerprintCompare", () => {
     const result = await runFingerprintCompare(restartConfig);
 
     expect(startProfileMock).toHaveBeenCalledTimes(2);
-    expect(connectToStartedBrowserMock).toHaveBeenCalledTimes(2);
+    expect(connectAutomationMock).toHaveBeenCalledTimes(2);
     expect(collectBrowserScanMock).toHaveBeenCalledTimes(2);
     expect(firstBrowser.close).toHaveBeenCalledTimes(1);
     expect(secondBrowser.close).toHaveBeenCalledTimes(1);

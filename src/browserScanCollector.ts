@@ -1,5 +1,5 @@
-import type { BrowserScanComponentSnapshot, BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig } from "./types.js";
-import type { Browser, Page } from "playwright";
+import type { BrowserScanComponentSnapshot, BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig, LocalApiStartResponse } from "./types.js";
+import type { BrowserAutomation, BrowserAutomationPage } from "./browserAutomation.js";
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BROWSER_SCAN_CHARS =
@@ -303,7 +303,7 @@ function decodeBrowserScanSnapshot(value: string): BrowserScanComponentSnapshot 
   }
 }
 
-async function collectProbe(page: Page): Promise<{
+async function collectProbe(page: BrowserAutomationPage): Promise<{
   raw: Record<string, unknown>;
   values: Record<string, BrowserScanValue>;
 }> {
@@ -376,7 +376,7 @@ async function collectProbe(page: Page): Promise<{
   };
 }
 
-async function collectProbeSafely(page: Page): Promise<ProbeResult> {
+async function collectProbeSafely(page: BrowserAutomationPage): Promise<ProbeResult> {
   try {
     return await collectProbe(page);
   } catch (error) {
@@ -388,24 +388,23 @@ async function collectProbeSafely(page: Page): Promise<ProbeResult> {
   }
 }
 
-async function readComponentSnapshotPayload(page: Page): Promise<string | undefined> {
-  return page
-    .evaluate(() => {
-      const getComponent = (window as Window & {
-        _getComponent?: () => string;
-      })._getComponent;
+async function readComponentSnapshotPayload(page: BrowserAutomationPage): Promise<string | undefined> {
+  const result = await page.evaluate(() => {
+    const getComponent = (window as Window & {
+      _getComponent?: () => string;
+    })._getComponent;
 
-      if (typeof getComponent !== "function") {
-        return undefined;
-      }
+    if (typeof getComponent !== "function") {
+      return undefined;
+    }
 
-      return getComponent();
-    })
-    .catch(() => undefined);
+    return getComponent();
+  });
+  return typeof result === "string" ? result : undefined;
 }
 
 async function collectComponentSnapshot(
-  page: Page
+  page: BrowserAutomationPage
 ): Promise<BrowserScanComponentSnapshot | undefined> {
   let lastSnapshot: BrowserScanComponentSnapshot | undefined;
 
@@ -604,27 +603,22 @@ function mapBrowserScanSnapshotValues(
   return values;
 }
 
-async function collectVisibleText(page: Page): Promise<string> {
-  return page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
+async function collectVisibleText(page: BrowserAutomationPage): Promise<string> {
+  return page.bodyText(10000);
 }
 
 export async function collectBrowserScan(
   config: ToolConfig,
   profileId: string,
-  browser: Browser
+  automation: BrowserAutomation
 ): Promise<BrowserScanResult> {
-  let page: Page | undefined;
+  let page: BrowserAutomationPage | undefined;
 
   try {
-    const context = browser.contexts()[0] || (await browser.newContext());
-    page = await context.newPage();
+    page = await automation.newPage();
 
-    await page.goto(config.browserScanUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: config.timeoutMs
-    });
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
-    await page.waitForTimeout(3000);
+    await page.goto(config.browserScanUrl, config.timeoutMs);
+    await page.waitForNetworkIdleOrDelay();
 
     const rawText = await collectVisibleText(page);
     const truncatedText = rawText.slice(0, 20000);
