@@ -1,6 +1,8 @@
 import { Builder, ThenableWebDriver, Capabilities } from "selenium-webdriver";
 import type { BrowserAutomation, BrowserAutomationPage } from "./browserAutomation.js";
 import type { LocalApiStartResponse } from "./types.js";
+import { spawn, type ChildProcess } from "child_process";
+import * as net from "net";
 
 export class SeleniumPage implements BrowserAutomationPage {
   private driver: ThenableWebDriver;
@@ -75,9 +77,12 @@ export class SeleniumPage implements BrowserAutomationPage {
 
 export class SeleniumAutomation implements BrowserAutomation {
   private driver: ThenableWebDriver;
+  private geckodriverProc: ChildProcess | null;
+  private closed = false;
 
-  constructor(driver: ThenableWebDriver) {
+  constructor(driver: ThenableWebDriver, geckodriverProc: ChildProcess | null = null) {
     this.driver = driver;
+    this.geckodriverProc = geckodriverProc;
   }
 
   async newPage(): Promise<BrowserAutomationPage> {
@@ -86,6 +91,15 @@ export class SeleniumAutomation implements BrowserAutomation {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.geckodriverProc) {
+      try {
+        this.geckodriverProc.kill();
+      } catch {
+        // ignore
+      }
+    }
     try {
       await this.driver.quit();
     } catch {
@@ -94,26 +108,138 @@ export class SeleniumAutomation implements BrowserAutomation {
   }
 }
 
+function findGeckodriverPath(started: LocalApiStartResponse): string {
+  if (started.webdriver && typeof started.webdriver === "string" && started.webdriver.length > 0) {
+    return started.webdriver;
+  }
+  throw new Error(
+    "AdsPower Firefox endpoint is not attachable: webdriver path is not available from AdsPower Local API. " +
+    "wsSelenium is httpd.js (not WebDriver), and Marionette port alone cannot be used without geckodriver as a bridge. " +
+    "Refusing to launch local Firefox because it would collect host fingerprints instead of profile fingerprints."
+  );
+}
+
+async function findAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Unexpected server address type"));
+        return;
+      }
+      const port = address.port;
+      server.close(() => resolve(port));
+    });
+    server.on("error", (err) => {
+      reject(err);
+    });
+  });
+}
+
+async function waitForTcpPort(port: number, maxMs = 15000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await new Promise((r) => setTimeout(r, 200));
+    const client = new net.Socket();
+    try {
+      await new Promise<void>((res, rej) => {
+        client.connect(port, "127.0.0.1", () => { res(); client.destroy(); });
+        client.on("error", () => { rej(); client.destroy(); });
+      });
+      return;
+    } catch {
+      // not ready
+    }
+  }
+  throw new Error(`Timed out waiting for TCP port ${port} after ${maxMs}ms`);
+}
+
 export async function connectSelenium(started: LocalApiStartResponse): Promise<BrowserAutomation> {
-  const wsSelenium = started.wsSelenium;
-  if (!wsSelenium && !started.marionettePort) {
+  const profileId = started.profileId;
+
+  const marionettePort = started.marionettePort;
+  if (marionettePort === undefined) {
     throw new Error(
-      "Firefox profile requires ws.selenium or marionettePort from AdsPower Local API"
+      `profile ${profileId}: AdsPower Firefox endpoint is not attachable: marionettePort is not available from AdsPower Local API. ` +
+      "Refusing to launch local Firefox because it would collect host fingerprints instead of profile fingerprints."
+    );
+  }
+
+  const portNum = typeof marionettePort === "string" ? parseInt(marionettePort, 10) : marionettePort;
+  if (isNaN(portNum)) {
+    throw new Error(
+      `profile ${profileId}: AdsPower Firefox endpoint is not attachable: marionettePort "${marionettePort}" is not a valid port number. ` +
+      "Refusing to launch local Firefox."
+    );
+  }
+
+  const geckodriverPath = findGeckodriverPath(started);
+  const gdHttpPort = await findAvailablePort();
+
+  const geckodriverProc = spawn(geckodriverPath, [
+    "--connect-existing",
+    "--marionette-host", "127.0.0.1",
+    "--marionette-port", String(portNum),
+    "--port", String(gdHttpPort),
+    "--log", "warn"
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false
+  });
+
+  let procExitedEarly = false;
+  let earlyExitCode: number | null = null;
+  geckodriverProc.on("error", () => { procExitedEarly = true; });
+  geckodriverProc.on("close", (code) => { earlyExitCode = code; });
+
+  let geckodriverReady = false;
+  geckodriverProc.stdout?.on("data", (chunk: Buffer) => {
+    if (geckodriverReady) return;
+    const line = chunk.toString();
+    if (line.includes("Listening on")) {
+      geckodriverReady = true;
+    }
+  });
+
+  // Wait for geckodriver HTTP server to be ready
+  try {
+    await waitForTcpPort(gdHttpPort, 15000);
+  } catch {
+    geckodriverProc.kill();
+    if (procExitedEarly) {
+      throw new Error(
+        `profile ${profileId}: geckodriver exited early during Marionette attach ` +
+        `(marionettePort=${portNum}, exitCode=${earlyExitCode}). ` +
+        "Marionette endpoint may be unreachable or AdsPower Firefox process crashed."
+      );
+    }
+    throw new Error(
+      `profile ${profileId}: geckodriver HTTP server did not start on port ${gdHttpPort} within 15000ms ` +
+      `(marionettePort=${portNum}).`
     );
   }
 
   const caps = new Capabilities();
   caps.set("browserName", "firefox");
+  caps.set("moz:firefoxOptions", {});
 
-  const port = started.marionettePort !== undefined
-    ? (typeof started.marionettePort === "string" ? parseInt(started.marionettePort, 10) : started.marionettePort)
-    : (() => { throw new Error("Firefox profile requires marionettePort"); })();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let driver: ThenableWebDriver;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    driver = await new Builder()
+      .usingServer(`http://127.0.0.1:${gdHttpPort}`)
+      .withCapabilities(caps)
+      .build() as unknown as ThenableWebDriver;
+  } catch (builderErr) {
+    geckodriverProc.kill();
+    throw new Error(
+      `profile ${profileId}: RemoteWebDriver session creation failed ` +
+      `(geckodriver=http://127.0.0.1:${gdHttpPort}): ${builderErr instanceof Error ? builderErr.message : String(builderErr)}`
+    );
+  }
 
-  caps.set("moz:firefoxOptions", {
-    args: [`-marionette-port ${port}`]
-  });
-
-  const builder = new Builder().withCapabilities(caps);
-  const driver = builder.build();
-  return new SeleniumAutomation(driver as ThenableWebDriver);
+  return new SeleniumAutomation(driver, geckodriverProc);
 }

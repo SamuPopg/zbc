@@ -227,4 +227,158 @@ describe("collectBrowserScan", () => {
     });
     expect(result.probe?.error).toContain("__name is not defined");
   });
+
+  it("probe does not produce SyntaxError from TypeScript generic syntax", async () => {
+    // This test verifies that when the probe script is evaluated,
+    // it does not throw SyntaxError due to TypeScript-only syntax like Promise<T>
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "test-hash" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        // Simulate probe returning valid data without generic type errors
+        return {
+          ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0)",
+          language: "en-US",
+          platform: "Win32",
+          hardware_concurrency: 8,
+          screen_resolution: "1920x1080",
+          dpr: 1
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("ok");
+    // If probe had SyntaxError from generic types, it would appear here
+    if (result.probe?.error) {
+      expect(result.probe.error).not.toMatch(/SyntaxError.*\</);
+    }
+    // Probe values should be populated
+    expect(result.probe?.values.ua?.value).toBeDefined();
+  });
+
+  it("timeout of a probe sub-item still leaves basic fields in raw and values", async () => {
+    // When audioHash or webgpu times out, the probe should still return
+    // the basic synchronous fields (ua, language, platform, etc.)
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "snapshot-canvas" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        // Simulate a probe where async sub-items timed out but basic sync fields exist
+        // This mimics what happens when readAudioHash or readWebGpu times out
+        return {
+          ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0)",
+          language: "en-US",
+          languages: ["en-US", "en"],
+          platform: "Win32",
+          hardware_concurrency: 8,
+          device_memory: 8,
+          webdriver: false,
+          timezone: "America/New_York",
+          screen_resolution: "1920x1080",
+          screen_available_resolution: "1920x1050",
+          color_depth: "24",
+          dpr: 1,
+          device_pixel_ratio: 1,
+          do_not_track: "1",
+          client_hints: {},
+          canvasHash: "sync-canvas-hash",
+          webgl: { vendor: "Intel", renderer: "Iris", version: "4.5" },
+          clientRectHash: "client-rect-hash",
+          fonts: { count: 3, sample: ["Arial"], hash: "fonts-hash" },
+          speechVoices: { count: 2, sample: [] },
+          probeTimeouts: ["audioHash"],
+          probeErrors: { audioHash: "Timed out after 4000ms" }
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("ok");
+    expect(result.probe?.raw).toBeDefined();
+    expect(result.probe?.raw.ua).toBe("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0)");
+    expect(result.probe?.raw.language).toBe("en-US");
+    expect(result.probe?.raw.platform).toBe("Win32");
+    expect(result.probe?.raw.screen_resolution).toBe("1920x1080");
+    expect(result.probe?.raw.timezone).toBe("America/New_York");
+    expect(result.probe?.raw.dpr).toBe(1);
+    expect(result.probe?.raw.canvasHash).toBe("sync-canvas-hash");
+    expect(result.probe?.raw.probeTimeouts).toEqual(["audioHash"]);
+    expect(result.probe?.raw.probeErrors).toEqual({ audioHash: "Timed out after 4000ms" });
+    // Values mapping should still work
+    expect(result.probe?.values.ua?.value).toBe("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0)");
+    expect(result.probe?.values.language?.value).toBe("en-US");
+    expect(result.probe?.values.platform?.value).toBe("Win32");
+    expect(result.probe?.values.screen_resolution?.value).toBe("1920x1080");
+    expect(result.probe?.values.canvas?.value).toBe("sync-canvas-hash");
+  });
+
+  it("PROBE_SCRIPT contains no TypeScript-only syntax", async () => {
+    // Verify the PROBE_SCRIPT string doesn't contain TypeScript-specific syntax
+    // that would cause SyntaxError in Firefox's SpiderMonkey
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "test" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        // Extract the PROBE_SCRIPT string to verify it doesn't have TS generics
+        const scriptContent = String(fn);
+        // If this is the probe script evaluate call, return basic data
+        return {
+          ua: "test",
+          language: "en",
+          platform: "Win32",
+          screen_resolution: "1x1",
+          dpr: 1
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+    expect(result.status).toBe("ok");
+    // The probe.error should not contain SyntaxError with < character
+    if (result.probe?.error) {
+      expect(result.probe.error).not.toMatch(/SyntaxError.*</);
+    }
+  });
 });

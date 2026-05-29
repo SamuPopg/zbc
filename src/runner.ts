@@ -1,5 +1,5 @@
 import { fetchProfileSettings } from "./adspowerBackend.js";
-import { connectAutomation } from "./browserSession.js";
+import { connectAutomation, detectBrowserType } from "./browserSession.js";
 import { collectBrowserScan } from "./browserScanCollector.js";
 import { startProfile, stopProfile } from "./localApi.js";
 import { buildProbeChecks } from "./probeValidation.js";
@@ -74,6 +74,61 @@ function statusFor(
   return "partial";
 }
 
+function isWindowsNTUA(ua: string): boolean {
+  return /Windows NT/.test(ua);
+}
+
+function isMacOSUA(ua: string): boolean {
+  return /Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua);
+}
+
+/**
+ * Detect expected OS family from profile settings (top-level fields).
+ * Returns null if detection is ambiguous or not a mobile OS.
+ */
+function detectMobileOSFromSettings(settings: ProfileSettings): "ios" | "android" | null {
+  const s = settings.settings;
+  const platform = s?.platform as string | undefined;
+  if (typeof platform !== "string") return null;
+
+  if (platform === "iPhone" || platform === "iPad") return "ios";
+  if (platform === "Linux armv81" || platform === "Android") return "android";
+  return null;
+}
+
+function validateFingerprintMismatch(
+  settings: ProfileSettings,
+  browserScan: BrowserScanResult | undefined,
+  notes: string[]
+): void {
+  if (!browserScan) return;
+
+  const browserType = detectBrowserType(settings);
+  if (browserType !== "firefox") return;
+
+  const probeUA = browserScan.values?.ua?.value;
+  if (!probeUA || typeof probeUA !== "string") {
+    return;
+  }
+
+  const probeUAStr = String(probeUA);
+  const settingsMobileOS = detectMobileOSFromSettings(settings);
+
+  if (settingsMobileOS === "ios" && (isWindowsNTUA(probeUAStr) || isMacOSUA(probeUAStr))) {
+    notes.push(
+      `身份校验异常：Profile 设置 platform=iPhone 但采集到桌面 Firefox UA（${probeUAStr.substring(0, 60)}...），可能是采集到了错误的浏览器环境`
+    );
+    return;
+  }
+
+  if (settingsMobileOS === "android" && (isWindowsNTUA(probeUAStr) || isMacOSUA(probeUAStr))) {
+    notes.push(
+      `身份校验异常：Profile 设置 platform=Android 但采集到桌面 Firefox UA（${probeUAStr.substring(0, 60)}...），可能是采集到了错误的浏览器环境`
+    );
+    return;
+  }
+}
+
 async function closeBrowserIfNeeded(
   config: ToolConfig,
   automation: BrowserAutomation | undefined,
@@ -128,8 +183,19 @@ async function collectSessionStabilityScans(
 ): Promise<BrowserScanResult[]> {
   let automation: BrowserAutomation | undefined;
   try {
-    const started = await startProfile(config, settings.profileId);
-    automation = await connectAutomation(started, settings);
+    let started;
+    try {
+      started = await startProfile(config, settings.profileId);
+    } catch (startError) {
+      notes.push(`启动环境失败：${errorMessage(startError)}`);
+      return [];
+    }
+    try {
+      automation = await connectAutomation(started, settings);
+    } catch (connectError) {
+      notes.push(`连接浏览器失败：${errorMessage(connectError)}`);
+      return [];
+    }
 
     const scans: BrowserScanResult[] = [];
     for (let i = 0; i < config.stabilityRuns; i += 1) {
@@ -192,6 +258,8 @@ async function runProfile(
     browserScan = browserScans[0];
     status = statusFor(settings, browserScan);
 
+    validateFingerprintMismatch(settings, browserScan, notes);
+
     if (config.stabilityRuns > 1) {
       const failedRunCount = browserScans.filter(
         (scan) => scan.status === "failed"
@@ -221,6 +289,7 @@ async function runProfile(
         })),
         fields: buildStabilityFields(browserScans)
       };
+      return result;
     }
 
     return result;

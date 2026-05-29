@@ -82,7 +82,11 @@ const PROBE_SCRIPT = String.raw`(async () => {
       oscillator.connect(compressor);
       compressor.connect(context.destination);
       oscillator.start(0);
-      const buffer = await context.startRendering();
+      const buffer = await Promise.race([
+        context.startRendering(),
+        new Promise((_, rej) => setTimeout(() => rej(undefined), 4000))
+      ]);
+      if (buffer === undefined) return undefined;
       let sample = "";
       const channel = buffer.getChannelData(0);
       for (let index = 4500; index < 5000; index += 5) {
@@ -141,36 +145,44 @@ const PROBE_SCRIPT = String.raw`(async () => {
       if (!window.RTCPeerConnection) return undefined;
       const candidates = [];
       const candidateTypes = new Set();
-      await new Promise((resolve) => {
-        const peer = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-        });
-        const timer = window.setTimeout(() => {
-          peer.close();
-          resolve();
-        }, 3000);
-        peer.createDataChannel("probe");
-        peer.onicecandidate = (event) => {
-          if (!event.candidate) {
-            window.clearTimeout(timer);
-            peer.close();
-            resolve();
-            return;
-          }
-          const candidate = event.candidate.candidate;
-          candidates.push(candidate);
-          const type = candidate.match(/\btyp\s+(\w+)/)?.[1];
-          if (type) candidateTypes.add(type);
-        };
-        peer
-          .createOffer()
-          .then((offer) => peer.setLocalDescription(offer))
-          .catch(() => {
-            window.clearTimeout(timer);
-            peer.close();
-            resolve();
+      const timer = window.setTimeout(() => {
+        // don't resolve here - let the Promise.race below handle it
+      }, 2500);
+      await Promise.race([
+        new Promise((resolve) => {
+          const peer = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
           });
-      });
+          peer.createDataChannel("probe");
+          peer.onicecandidate = (event) => {
+            if (!event.candidate) {
+              window.clearTimeout(timer);
+              peer.close();
+              resolve();
+              return;
+            }
+            const candidate = event.candidate.candidate;
+            candidates.push(candidate);
+            const type = candidate.match(/\btyp\s+(\w+)/)?.[1];
+            if (type) candidateTypes.add(type);
+          };
+          peer
+            .createOffer()
+            .then((offer) => peer.setLocalDescription(offer))
+            .catch(() => {
+              window.clearTimeout(timer);
+              peer.close();
+              resolve();
+            });
+        }),
+        new Promise((resolve) => {
+          window.setTimeout(() => {
+            window.clearTimeout(timer);
+            resolve();
+          }, 2500);
+        })
+      ]);
+      window.clearTimeout(timer);
       return {
         candidates,
         candidateTypes: Array.from(candidateTypes),
@@ -185,7 +197,12 @@ const PROBE_SCRIPT = String.raw`(async () => {
   const readWebGpu = async () => {
     try {
       if (!nav.gpu || !nav.gpu.requestAdapter) return undefined;
-      const adapter = await nav.gpu.requestAdapter();
+      const timer = window.setTimeout(() => { /* noop */ }, 5000);
+      const adapter = await Promise.race([
+        nav.gpu.requestAdapter(),
+        new Promise((res) => setTimeout(() => { window.clearTimeout(timer); res(null); }, 5000))
+      ]);
+      window.clearTimeout(timer);
       if (!adapter) return undefined;
       return { info: adapter.info };
     } catch {
@@ -233,13 +250,23 @@ const PROBE_SCRIPT = String.raw`(async () => {
     }
   };
 
-  const webgl = readWebgl();
-  const audioHash = await readAudioHash();
-  const mediaDevices = await readMediaDevices();
-  const webrtc = await readWebrtc();
-  const webgpu = await readWebGpu();
+  const withTimeout = (label, promise, ms) => {
+    const timer = window.setTimeout(() => {
+      window._probeTimeouts = window._probeTimeouts || {};
+      window._probeTimeouts[label] = true;
+    }, ms);
+    return promise.then((v) => {
+      window.clearTimeout(timer);
+      return v;
+    }).catch((e) => {
+      window.clearTimeout(timer);
+      window._probeErrors = window._probeErrors || {};
+      window._probeErrors[label] = String(e && e.message ? e.message : e);
+      return undefined;
+    });
+  };
 
-  return {
+  const result = {
     ua: nav.userAgent,
     language: nav.language,
     languages: nav.languages,
@@ -256,15 +283,30 @@ const PROBE_SCRIPT = String.raw`(async () => {
     do_not_track: nav.doNotTrack,
     client_hints: nav.userAgentData,
     canvasHash: readCanvasHash(),
-    webgl,
-    audioHash,
+    webgl: readWebgl(),
     clientRectHash: readClientRectsHash(),
-    mediaDevices,
-    webrtc,
-    webgpu,
     fonts: readFonts(),
     speechVoices: readSpeechVoices()
   };
+
+  const audioHash = await withTimeout("audioHash", readAudioHash(), 4000);
+  if (audioHash !== undefined) result.audioHash = audioHash;
+
+  const mediaDevices = await withTimeout("mediaDevices", readMediaDevices(), 5000);
+  if (mediaDevices !== undefined) result.mediaDevices = mediaDevices;
+
+  const webrtc = await withTimeout("webrtc", readWebrtc(), 5000);
+  if (webrtc !== undefined) result.webrtc = webrtc;
+
+  const webgpu = await withTimeout("webgpu", readWebGpu(), 5000);
+  if (webgpu !== undefined) result.webgpu = webgpu;
+
+  if (window._probeTimeouts || window._probeErrors) {
+    result.probeTimeouts = Object.keys(window._probeTimeouts || {});
+    result.probeErrors = window._probeErrors || {};
+  }
+
+  return result;
 })()`;
 
 function probeValue(value: unknown): BrowserScanValue {
@@ -509,7 +551,10 @@ function mapBrowserScanSnapshotValues(
       values.client_rects = domValue(hardware.clientRectHash, note);
     }
     if (hasOwnValue(hardware, "mediaDeviceHash")) {
-      values.media_devices = domValue(hardware.mediaDeviceHash, note);
+      const hash = hardware.mediaDeviceHash;
+      if (typeof hash === "string" && hash !== "") {
+        values.media_devices = domValue(hash, note);
+      }
     }
     if (hasOwnValue(hardware, "webGPUHash") || hasOwnValue(hardware, "webGPU")) {
       values.gpu = domValue(
@@ -519,6 +564,39 @@ function mapBrowserScanSnapshotValues(
         },
         note
       );
+    }
+
+    // Map screen fields from BrowserScan snapshot (Firefox provides these when Chromium path does not)
+    if (hasOwnValue(hardware, "screenResolution")) {
+      const res = hardware.screenResolution;
+      if (Array.isArray(res) && res.length === 2) {
+        values.screen_resolution = domValue(`${res[0]}x${res[1]}`, note);
+      }
+    }
+    if (hasOwnValue(hardware, "screenAvaliableWidth") && hasOwnValue(hardware, "screenAvaliableHeight")) {
+      const w = hardware.screenAvaliableWidth;
+      const h = hardware.screenAvaliableHeight;
+      if (typeof w === "number" && typeof h === "number") {
+        values.screen_available_resolution = domValue(`${w}x${h}`, note);
+      }
+    }
+    if (hasOwnValue(hardware, "colorDepth")) {
+      const cd = hardware.colorDepth;
+      if (cd !== "") {
+        values.color_depth = domValue(cd, note);
+      }
+    }
+    if (hasOwnValue(hardware, "hardwareConcurrency")) {
+      const hc = hardware.hardwareConcurrency;
+      if (hc !== "") {
+        values.hardware_concurrency = domValue(hc, note);
+      }
+    }
+    if (hasOwnValue(hardware, "deviceMemory")) {
+      const dm = hardware.deviceMemory;
+      if (dm !== "" && dm !== undefined) {
+        values.device_memory = domValue(dm, note);
+      }
     }
   }
 
@@ -593,11 +671,26 @@ function mapBrowserScanSnapshotValues(
   }
 
   if (browser && hasOwnValue(browser, "clientHints")) {
-    values.client_hints = domValue(browser.clientHints, note);
+    const ch = browser.clientHints;
+    if (ch && typeof ch === "object" && Object.keys(ch).length > 0) {
+      values.client_hints = domValue(ch, note);
+    }
   }
 
   if (kernelInfo && Object.keys(kernelInfo).length > 0) {
     values.browser_kernel_config = domValue(kernelInfo, note);
+  }
+
+  // For Firefox: extract platform from browser.jsUA when snapshot.platform is empty
+  // and no probe value is available
+  if (!values.platform && browser && hasOwnValue(browser, "jsUA")) {
+    const jsUA = browser.jsUA;
+    if (isRecord(jsUA) && typeof jsUA.os === "object") {
+      const os = jsUA.os as Record<string, unknown>;
+      if (typeof os.name === "string" && typeof os.version === "string") {
+        values.platform = domValue(`${os.name} ${os.version}`, note);
+      }
+    }
   }
 
   return values;
@@ -614,10 +707,23 @@ export async function collectBrowserScan(
 ): Promise<BrowserScanResult> {
   let page: BrowserAutomationPage | undefined;
 
+  async function navigateWithRetry(url: string, maxRetries: number): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+      await page!.goto(url, config.timeoutMs);
+      const bodyText = await page!.bodyText(5000);
+      if (!bodyText.includes("about:neterror") && !bodyText.includes("about:neterr")) {
+        return;
+      }
+      if (attempt <= maxRetries) {
+        await page!.waitForTimeout(2000).catch(() => undefined);
+      }
+    }
+  }
+
   try {
     page = await automation.newPage();
 
-    await page.goto(config.browserScanUrl, config.timeoutMs);
+    await navigateWithRetry(config.browserScanUrl, 2);
     await page.waitForNetworkIdleOrDelay();
 
     const rawText = await collectVisibleText(page);

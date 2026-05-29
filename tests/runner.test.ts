@@ -24,7 +24,8 @@ vi.mock("../src/localApi.js", () => ({
 
 vi.mock("../src/browserSession.js", () => ({
   connectToStartedBrowser: vi.fn(),
-  connectAutomation: vi.fn()
+  connectAutomation: vi.fn(),
+  detectBrowserType: vi.fn().mockReturnValue("unknown")
 }));
 
 vi.mock("../src/browserScanCollector.js", () => ({
