@@ -74,6 +74,30 @@ function statusFor(
   return "partial";
 }
 
+/**
+ * BrowserScan 页面已成功打开、`_getComponent()` 组件快照却没有初始化，
+ * 报告里只剩 `browser_scan_raw_text` 时，看起来像"无原因未采集"。
+ * 严格判断：仅在第一轮 BrowserScan、状态 ok、无 snapshot、values 只有一个 raw text 时触发。
+ */
+function isBrowserScanSnapshotMissing(
+  browserScan: BrowserScanResult | undefined
+): boolean {
+  if (!browserScan || browserScan.status !== "ok") {
+    return false;
+  }
+  if (browserScan.componentSnapshot) {
+    return false;
+  }
+  if (!browserScan.values || typeof browserScan.values !== "object") {
+    return false;
+  }
+  const keys = Object.keys(browserScan.values);
+  if (keys.length !== 1) {
+    return false;
+  }
+  return keys[0] === "browser_scan_raw_text";
+}
+
 function isWindowsNTUA(ua: string): boolean {
   return /Windows NT/.test(ua);
 }
@@ -259,6 +283,12 @@ async function runProfile(
     status = statusFor(settings, browserScan);
 
     validateFingerprintMismatch(settings, browserScan, notes);
+
+    if (isBrowserScanSnapshotMissing(browserScan)) {
+      notes.push(
+        "BrowserScan 页面已打开，但组件快照未初始化，仅采集到页面原文；请检查 BrowserScan 页面是否加载完整、代理/网络或移动 UA 兼容性。"
+      );
+    }
 
     if (config.stabilityRuns > 1) {
       const failedRunCount = browserScans.filter(

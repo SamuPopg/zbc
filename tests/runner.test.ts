@@ -413,4 +413,124 @@ describe("runFingerprintCompare", () => {
     expect(profileResult.stability!.runs).toHaveLength(2);
     expect(profileResult.stability!.fields.webgl.status).toBe("changed");
   });
+
+  it("adds a profile-level note when BrowserScan page opened but component snapshot was never initialized", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    const singleProfileSettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-snapshot-missing" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(singleProfileSettings);
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "<html>BrowserScan body</html>",
+      // intentionally no componentSnapshot
+      values: {
+        browser_scan_raw_text: {
+          value: "<html>BrowserScan body</html>",
+          source: "dom",
+          note: "BrowserScan visible text snapshot truncated to 20000 characters"
+        }
+      }
+    });
+
+    const result = await runFingerprintCompare(singleProfileConfig);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.status).toBe("ok");
+    expect(profileResult.notes).toHaveLength(1);
+    expect(profileResult.notes[0]).toContain("组件快照未初始化");
+    expect(profileResult.notes[0]).toContain("BrowserScan 页面已打开");
+    expect(profileResult.notes[0]).toContain("代理/网络或移动 UA 兼容性");
+  });
+
+  it("does not add the snapshot-missing note when componentSnapshot is present", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    const singleProfileSettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-snapshot-present" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(singleProfileSettings);
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      componentSnapshot: {
+        allComplete: true,
+        hardware: { canvasHash: "abc123" }
+      },
+      values: {
+        ua: { value: "ua-snapshot-present", source: "runtime" },
+        canvas: { value: "abc123", source: "dom", note: "BrowserScan _getComponent snapshot" },
+        browser_scan_raw_text: {
+          value: "<html>BrowserScan body</html>",
+          source: "dom",
+          note: "BrowserScan visible text snapshot truncated to 20000 characters"
+        }
+      }
+    });
+
+    const result = await runFingerprintCompare(singleProfileConfig);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.status).toBe("ok");
+    expect(profileResult.notes.join(" ")).not.toContain("组件快照未初始化");
+  });
+
+  it("does not add the snapshot-missing note when values contain fields beyond raw text even without componentSnapshot", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    const singleProfileSettings: ProfileSettings[] = [
+      {
+        profileId: "PROFILE_ID_1",
+        settings: { ua: "ua-probe-only" },
+        randomFingerprintEnabled: false,
+        fetchStatus: "ok"
+      }
+    ];
+    fetchProfileSettingsMock.mockResolvedValueOnce(singleProfileSettings);
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      // no componentSnapshot
+      values: {
+        ua: { value: "ua-probe-only", source: "probe" },
+        browser_scan_raw_text: {
+          value: "<html>BrowserScan body</html>",
+          source: "dom",
+          note: "BrowserScan visible text snapshot truncated to 20000 characters"
+        }
+      }
+    });
+
+    const result = await runFingerprintCompare(singleProfileConfig);
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.status).toBe("ok");
+    expect(profileResult.notes.join(" ")).not.toContain("组件快照未初始化");
+  });
 });
