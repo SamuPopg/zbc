@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchProfileSettings } from "../src/adspowerBackend.js";
-import { connectToStartedBrowser, connectAutomation } from "../src/browserSession.js";
+import { connectAutomation } from "../src/browserSession.js";
 import { collectBrowserScan } from "../src/browserScanCollector.js";
 import { startProfile, stopProfile } from "../src/localApi.js";
 import { writeReports } from "../src/reportWriter.js";

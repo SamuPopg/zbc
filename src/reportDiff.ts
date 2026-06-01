@@ -65,20 +65,6 @@ export function isMissing(val: unknown): boolean {
   return val === undefined || val === null;
 }
 
-function normalizeForCompare(val: unknown): unknown {
-  if (isMissing(val)) return undefined;
-  if (typeof val === "string") return val.trim();
-  if (typeof val === "object" && !Array.isArray(val)) {
-    return Object.keys(val as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((acc, k) => {
-        acc[k] = normalizeForCompare((val as Record<string, unknown>)[k]);
-        return acc;
-      }, {});
-  }
-  return val;
-}
-
 export function compareValues(
   baseline: unknown,
   current: unknown

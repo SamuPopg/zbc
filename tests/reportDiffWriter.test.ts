@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeReportDiff } from "../src/reportDiffWriter.js";
 import type { ReportDiffData } from "../src/reportDiff.js";

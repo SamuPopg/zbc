@@ -359,8 +359,6 @@ describe("collectBrowserScan", () => {
         if (String(fn).includes("_getComponent")) {
           return encodedSnapshot;
         }
-        // Extract the PROBE_SCRIPT string to verify it doesn't have TS generics
-        const scriptContent = String(fn);
         // If this is the probe script evaluate call, return basic data
         return {
           ua: "test",

@@ -1,4 +1,4 @@
-import type { BrowserScanComponentSnapshot, BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig, LocalApiStartResponse } from "./types.js";
+import type { BrowserScanComponentSnapshot, BrowserScanResult, BrowserScanValue, ProbeResult, ToolConfig } from "./types.js";
 import type { BrowserAutomation, BrowserAutomationPage } from "./browserAutomation.js";
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

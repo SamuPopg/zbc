@@ -129,7 +129,7 @@ describe("connectSelenium", () => {
     // Note: since waitForTcpPort uses real TCP, we let it fail (throws after timeout)
     // but the error message includes profileId, verifying the correct error path
     (fakeProc.stdout!.on as ReturnType<typeof vi.fn>).mockImplementation(
-      (event: string, handler: (chunk: Buffer) => void) => {
+      (event: string, _handler: (chunk: Buffer) => void) => {
         if (event === "data") {
           // Don't emit "Listening on" so waitForTcpPort times out and throws
           // This tests the timeout error path with profileId context

@@ -12,9 +12,3 @@ export interface BrowserAutomation {
   newPage(): Promise<BrowserAutomationPage>;
   close(): Promise<void>;
 }
-
-export function isPlaywrightBrowser(browser: unknown): browser is { contexts(): Array<{ newPage(): Promise<unknown> }>; close(): Promise<void> } {
-  if (browser === null || typeof browser !== "object") return false;
-  if ("contexts" in browser && typeof (browser as Record<string, unknown>).contexts === "function") return true;
-  return false;
-}

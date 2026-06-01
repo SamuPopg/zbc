@@ -30,7 +30,6 @@ function stableValueKey(value: unknown): unknown {
 export function buildStabilityFields(
   runs: BrowserScanResult[]
 ): Record<string, StabilityFieldSummary> {
-  const runCount = runs.length;
   const allKeys = new Set<string>();
 
   for (const run of runs) {
