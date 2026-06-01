@@ -2,6 +2,7 @@ node_modules/
 dist/
 reports/
 diff-reports/
+runs/
 config.local.json
 .env
 *.log
