@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchProfileSettings } from "../src/adspowerBackend.js";
-import { connectAutomation } from "../src/browserSession.js";
+import { connectAutomation, detectBrowserType } from "../src/browserSession.js";
 import { collectBrowserScan } from "../src/browserScanCollector.js";
 import { startProfile, stopProfile } from "../src/localApi.js";
 import { writeReports } from "../src/reportWriter.js";
-import { buildReportData, runFingerprintCompare } from "../src/runner.js";
+import {
+  buildReportData,
+  runFingerprintCompare,
+  type ProgressEvent
+} from "../src/runner.js";
 import type {
   BrowserScanResult,
   LocalApiStartResponse,
@@ -532,5 +536,189 @@ describe("runFingerprintCompare", () => {
     const profileResult = result.report.results[0];
     expect(profileResult.status).toBe("ok");
     expect(profileResult.notes.join(" ")).not.toContain("组件快照未初始化");
+  });
+
+  it("emits profile-level progress events in starting/connecting/scanning/done order", async () => {
+    vi.mocked(detectBrowserType).mockReturnValue("firefox");
+
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      probe: {
+        raw: {},
+        values: {
+          ua: { value: "ua-x", source: "probe" },
+          webgl: { value: "hash-x", source: "probe" }
+        }
+      },
+      values: {
+        ua: { value: "ua-x", source: "runtime" },
+        webgl: { value: "hash-x", source: "runtime" },
+        canvas: { value: "hash-c", source: "dom" }
+      }
+    });
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(singleProfileConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      "settings_loaded",
+      "profile_starting",
+      "browser_connecting",
+      "browser_scanning",
+      "profile_done"
+    ]);
+
+    const settingsLoaded = events[0];
+    expect(settingsLoaded).toMatchObject({
+      type: "settings_loaded",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1"
+    });
+
+    const browserConnecting = events[2];
+    expect(browserConnecting).toMatchObject({
+      type: "browser_connecting",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1",
+      browserType: "firefox"
+    });
+
+    const done = events[4];
+    expect(done).toMatchObject({
+      type: "profile_done",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      bsFieldCount: 3,
+      probeFieldCount: 2
+    });
+  });
+
+  it("emits one settings_loaded event per profile with increasing current index", async () => {
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(config, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const settingsLoaded = events.filter(
+      (event) => event.type === "settings_loaded"
+    );
+    expect(settingsLoaded.map((event) => event.profileId)).toEqual([
+      "PROFILE_ID_1",
+      "PROFILE_ID_2"
+    ]);
+    expect(settingsLoaded[0]).toMatchObject({ current: 1, total: 2 });
+    expect(settingsLoaded[1]).toMatchObject({ current: 2, total: 2 });
+
+    const done = events.filter((event) => event.type === "profile_done");
+    expect(done[0]).toMatchObject({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      bsFieldCount: 1,
+      probeFieldCount: 0
+    });
+    expect(done[1]).toMatchObject({
+      profileId: "PROFILE_ID_2",
+      status: "ok",
+      bsFieldCount: 1,
+      probeFieldCount: 0
+    });
+  });
+
+  it("emits profile_done with status failed and zero field counts when startProfile throws", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    startProfileMock.mockRejectedValueOnce(new Error("startup failed"));
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(singleProfileConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const done = events.find((event) => event.type === "profile_done");
+    expect(done).toMatchObject({
+      type: "profile_done",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1",
+      status: "partial",
+      bsFieldCount: 0,
+      probeFieldCount: 0
+    });
+  });
+
+  it("emits per-run starting/connecting/scanning events in restart stability mode", async () => {
+    vi.mocked(detectBrowserType).mockReturnValue("chromium");
+
+    const restartConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 2,
+      stabilityMode: "restart"
+    };
+
+    collectBrowserScanMock.mockResolvedValue({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {
+        ua: { value: "ua-stable", source: "runtime" }
+      }
+    });
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(restartConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const types = events.map((event) => event.type);
+    expect(types).toEqual([
+      "settings_loaded",
+      "profile_starting",
+      "browser_connecting",
+      "browser_scanning",
+      "profile_starting",
+      "browser_connecting",
+      "browser_scanning",
+      "profile_done"
+    ]);
+
+    const connecting = events.filter(
+      (event) => event.type === "browser_connecting"
+    );
+    expect(connecting).toHaveLength(2);
+    for (const event of connecting) {
+      expect(event).toMatchObject({ browserType: "chromium" });
+    }
+  });
+
+  it("runs cleanly without an onProgress callback (no throw, no events)", async () => {
+    const events = vi.fn();
+    const result = await runFingerprintCompare(config);
+    expect(events).not.toHaveBeenCalled();
+    expect(result.report.profileIds).toEqual(config.profileIds);
   });
 });

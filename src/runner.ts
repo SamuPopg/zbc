@@ -1,5 +1,9 @@
 import { fetchProfileSettings } from "./adspowerBackend.js";
-import { connectAutomation, detectBrowserType } from "./browserSession.js";
+import {
+  connectAutomation,
+  detectBrowserType,
+  type BrowserType
+} from "./browserSession.js";
 import { collectBrowserScan } from "./browserScanCollector.js";
 import { startProfile, stopProfile } from "./localApi.js";
 import { buildProbeChecks } from "./probeValidation.js";
@@ -18,6 +22,48 @@ export interface FingerprintCompareRunResult {
   report: ReportData;
   htmlPath: string;
   jsonPath: string;
+}
+
+export type ProgressEvent =
+  | {
+      type: "settings_loaded";
+      current: number;
+      total: number;
+      profileId: string;
+    }
+  | {
+      type: "profile_starting";
+      current: number;
+      total: number;
+      profileId: string;
+    }
+  | {
+      type: "browser_connecting";
+      current: number;
+      total: number;
+      profileId: string;
+      browserType: BrowserType;
+    }
+  | {
+      type: "browser_scanning";
+      current: number;
+      total: number;
+      profileId: string;
+    }
+  | {
+      type: "profile_done";
+      current: number;
+      total: number;
+      profileId: string;
+      status: ProfileRunResult["status"];
+      bsFieldCount: number;
+      probeFieldCount: number;
+    };
+
+export type ProgressCallback = (event: ProgressEvent) => void;
+
+export interface RunFingerprintCompareOptions {
+  onProgress?: ProgressCallback;
 }
 
 function errorMessage(error: unknown): string {
@@ -203,18 +249,34 @@ async function collectBrowserScanWithChecks(
 async function collectSessionStabilityScans(
   config: ToolConfig,
   settings: ProfileSettings,
+  current: number,
+  total: number,
+  onProgress: ProgressCallback | undefined,
   notes: string[]
 ): Promise<BrowserScanResult[]> {
   let automation: BrowserAutomation | undefined;
   try {
     let started;
     try {
+      onProgress?.({
+        type: "profile_starting",
+        current,
+        total,
+        profileId: settings.profileId
+      });
       started = await startProfile(config, settings.profileId);
     } catch (startError) {
       notes.push(`启动环境失败：${errorMessage(startError)}`);
       return [];
     }
     try {
+      onProgress?.({
+        type: "browser_connecting",
+        current,
+        total,
+        profileId: settings.profileId,
+        browserType: detectBrowserType(settings)
+      });
       automation = await connectAutomation(started, settings);
     } catch (connectError) {
       notes.push(`连接浏览器失败：${errorMessage(connectError)}`);
@@ -223,6 +285,12 @@ async function collectSessionStabilityScans(
 
     const scans: BrowserScanResult[] = [];
     for (let i = 0; i < config.stabilityRuns; i += 1) {
+      onProgress?.({
+        type: "browser_scanning",
+        current,
+        total,
+        profileId: settings.profileId
+      });
       scans.push(await collectBrowserScanWithChecks(config, settings, automation));
     }
     return scans;
@@ -235,6 +303,9 @@ async function collectSessionStabilityScans(
 async function collectRestartStabilityScans(
   config: ToolConfig,
   settings: ProfileSettings,
+  current: number,
+  total: number,
+  onProgress: ProgressCallback | undefined,
   notes: string[]
 ): Promise<BrowserScanResult[]> {
   const scans: BrowserScanResult[] = [];
@@ -242,8 +313,27 @@ async function collectRestartStabilityScans(
   for (let i = 0; i < config.stabilityRuns; i += 1) {
     let automation: BrowserAutomation | undefined;
     try {
+      onProgress?.({
+        type: "profile_starting",
+        current,
+        total,
+        profileId: settings.profileId
+      });
       const started = await startProfile(config, settings.profileId);
+      onProgress?.({
+        type: "browser_connecting",
+        current,
+        total,
+        profileId: settings.profileId,
+        browserType: detectBrowserType(settings)
+      });
       automation = await connectAutomation(started, settings);
+      onProgress?.({
+        type: "browser_scanning",
+        current,
+        total,
+        profileId: settings.profileId
+      });
       scans.push(await collectBrowserScanWithChecks(config, settings, automation));
     } catch (error) {
       scans.push(failedBrowserScanResult(settings.profileId, error));
@@ -258,10 +348,14 @@ async function collectRestartStabilityScans(
 
 async function runProfile(
   config: ToolConfig,
-  settings: ProfileSettings
+  settings: ProfileSettings,
+  current: number,
+  total: number,
+  onProgress: ProgressCallback | undefined
 ): Promise<ProfileRunResult> {
   const notes: string[] = [];
   let browserScan: BrowserScanResult | undefined;
+  let browserScans: BrowserScanResult[] = [];
   let status: ProfileRunResult["status"] = "failed";
 
   if (settings.fetchStatus === "failed") {
@@ -275,9 +369,23 @@ async function runProfile(
   try {
     const isRestartMode =
       config.stabilityMode === "restart" && config.stabilityRuns > 1;
-    const browserScans = isRestartMode
-      ? await collectRestartStabilityScans(config, settings, notes)
-      : await collectSessionStabilityScans(config, settings, notes);
+    browserScans = isRestartMode
+      ? await collectRestartStabilityScans(
+          config,
+          settings,
+          current,
+          total,
+          onProgress,
+          notes
+        )
+      : await collectSessionStabilityScans(
+          config,
+          settings,
+          current,
+          total,
+          onProgress,
+          notes
+        );
 
     browserScan = browserScans[0];
     status = statusFor(settings, browserScan);
@@ -300,58 +408,72 @@ async function runProfile(
         );
       }
     }
-
-    const result: ProfileRunResult = {
-      profileId: settings.profileId,
-      status,
-      notes,
-      settings,
-      browserScan
-    };
-
-    if (config.stabilityRuns > 1) {
-      result.stability = {
-        mode: config.stabilityMode,
-        runCount: config.stabilityRuns,
-        runs: browserScans.map((bs, index) => ({
-          runIndex: index + 1,
-          browserScan: bs
-        })),
-        fields: buildStabilityFields(browserScans)
-      };
-      return result;
-    }
-
-    return result;
   } catch (error) {
     status = "failed";
     notes.push(errorMessage(error));
-    return {
-      profileId: settings.profileId,
-      status,
-      notes,
-      settings,
-      browserScan
+  }
+
+  onProgress?.({
+    type: "profile_done",
+    current,
+    total,
+    profileId: settings.profileId,
+    status,
+    bsFieldCount: Object.keys(browserScan?.values ?? {}).length,
+    probeFieldCount: Object.keys(browserScan?.probe?.values ?? {}).length
+  });
+
+  const result: ProfileRunResult = {
+    profileId: settings.profileId,
+    status,
+    notes,
+    settings,
+    browserScan
+  };
+
+  if (config.stabilityRuns > 1) {
+    result.stability = {
+      mode: config.stabilityMode,
+      runCount: config.stabilityRuns,
+      runs: browserScans.map((bs, index) => ({
+        runIndex: index + 1,
+        browserScan: bs
+      })),
+      fields: buildStabilityFields(browserScans)
     };
   }
+
+  return result;
 }
 
 export async function runFingerprintCompare(
-  config: ToolConfig
+  config: ToolConfig,
+  options: RunFingerprintCompareOptions = {}
 ): Promise<FingerprintCompareRunResult> {
+  const onProgress = options.onProgress;
   const settings = await loadSettings(config);
   const settingsByProfileId = new Map(
     settings.map((item) => [item.profileId, item])
   );
   const results: ProfileRunResult[] = [];
+  const total = config.profileIds.length;
 
-  for (const profileId of config.profileIds) {
+  for (let index = 0; index < config.profileIds.length; index += 1) {
+    const profileId = config.profileIds[index];
+    const current = index + 1;
+    const profileSettings =
+      settingsByProfileId.get(profileId) ??
+      failedSettings(profileId, "profile settings unavailable");
+
+    onProgress?.({
+      type: "settings_loaded",
+      current,
+      total,
+      profileId
+    });
+
     results.push(
-      await runProfile(
-        config,
-        settingsByProfileId.get(profileId) ??
-          failedSettings(profileId, "profile settings unavailable")
-      )
+      await runProfile(config, profileSettings, current, total, onProgress)
     );
   }
 

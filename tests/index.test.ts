@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getConfigPath } from "../src/index.js";
+import { formatProgress, getConfigPath, summarizeStatuses } from "../src/index.js";
+import type { ProgressEvent } from "../src/runner.js";
 
 describe("getConfigPath", () => {
   it("defaults to config.local.json without --config", () => {
@@ -27,6 +28,133 @@ describe("getConfigPath", () => {
   it("throws when --config value is another flag", () => {
     expect(() => getConfigPath(["--config", "--verbose"])).toThrow(
       "--config requires a file path"
+    );
+  });
+});
+
+describe("formatProgress", () => {
+  it("formats settings_loaded with current/total and profileId", () => {
+    const event: ProgressEvent = {
+      type: "settings_loaded",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 读取设置值完成"
+    );
+  });
+
+  it("formats profile_starting as '启动 AdsPower 环境...'", () => {
+    const event: ProgressEvent = {
+      type: "profile_starting",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 启动 AdsPower 环境..."
+    );
+  });
+
+  it("formats browser_connecting for firefox as '连接 Firefox/Marionette...'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connecting",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "firefox"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 连接 Firefox/Marionette..."
+    );
+  });
+
+  it("formats browser_connecting for chromium as '连接 Chrome/CDP...'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connecting",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "chromium"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 连接 Chrome/CDP..."
+    );
+  });
+
+  it("formats browser_connecting for unknown as '连接浏览器...'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connecting",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "unknown"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 连接浏览器..."
+    );
+  });
+
+  it("formats browser_scanning as '打开 BrowserScan 并采集...'", () => {
+    const event: ProgressEvent = {
+      type: "browser_scanning",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 打开 BrowserScan 并采集..."
+    );
+  });
+
+  it("formats profile_done with status and field counts", () => {
+    const event: ProgressEvent = {
+      type: "profile_done",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      status: "ok",
+      bsFieldCount: 31,
+      probeFieldCount: 20
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 完成：ok，BS 字段 31 个，Probe 20 个"
+    );
+  });
+
+  it("formats profile_done for partial status with zero counts", () => {
+    const event: ProgressEvent = {
+      type: "profile_done",
+      current: 2,
+      total: 4,
+      profileId: "PROFILE_B",
+      status: "partial",
+      bsFieldCount: 0,
+      probeFieldCount: 0
+    };
+    expect(formatProgress(event)).toBe(
+      "[2/4] PROFILE_B 完成：partial，BS 字段 0 个，Probe 0 个"
+    );
+  });
+});
+
+describe("summarizeStatuses", () => {
+  it("counts ok/partial/failed and reports total", () => {
+    expect(
+      summarizeStatuses(["ok", "ok", "partial", "failed"])
+    ).toBe("完成：4 个 profile，ok 2，partial 1，failed 1");
+  });
+
+  it("returns all-zero counts for empty input", () => {
+    expect(summarizeStatuses([])).toBe(
+      "完成：0 个 profile，ok 0，partial 0，failed 0"
+    );
+  });
+
+  it("handles all profiles with the same status", () => {
+    expect(summarizeStatuses(["ok", "ok", "ok"])).toBe(
+      "完成：3 个 profile，ok 3，partial 0，failed 0"
     );
   });
 });
