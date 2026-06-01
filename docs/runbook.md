@@ -27,18 +27,36 @@ HTML 报告保持简单：每个指纹项只显示「设置值」和「BS值」�
 2. 确认 Local API 可用，默认地址是 `http://local.adspower.com:50325`。
 3. 准备后端 API 地址。
 4. 准备要检测的环境 ID。
-5. 设置 API key：
+5. 设置 API key。
+
+### Windows（PowerShell）
 
 ```powershell
 $env:ADSPOWER_API_KEY="你的真实 API key"
 ```
 
+### macOS（bash / zsh）
+
+```bash
+export ADSPOWER_API_KEY="你的真实 API key"
+```
+
+> macOS 上若 `local.adspower.com` 解析不通，可将 `config.local.json` 中的 `localApiBaseUrl` 改为 `http://127.0.0.1:50325`。
+
 ## 配置
 
-复制模板：
+复制模板。
+
+### Windows（PowerShell）
 
 ```powershell
 Copy-Item config.example.json config.local.json
+```
+
+### macOS（bash / zsh）
+
+```bash
+cp config.example.json config.local.json
 ```
 
 关键字段：
@@ -334,10 +352,21 @@ HTML 备注可能来自以下来源，查看备注时可先判断来源类型：
 
 ### 使用方式
 
+#### Windows（PowerShell）
+
 ```powershell
 npm.cmd run compare-reports -- reports\old.json reports\new.json
 npm.cmd run compare-reports -- reports\old.html reports\new.html
 ```
+
+#### macOS（bash / zsh）
+
+```bash
+npm run compare-reports -- reports/old.json reports/new.json
+npm run compare-reports -- reports/old.html reports/new.html
+```
+
+> macOS 上路径分隔符使用 `/`，不要使用 `\`；使用 `npm`，不要使用 `npm.cmd`。
 
 第一个路径是旧报告/基准报告，第二个路径是新报告/当前报告。
 
@@ -390,7 +419,32 @@ Probe 仍为辅助来源，不能顶替 BS。如果只有 Probe 变化，字段�
 
 ## 验证命令
 
+### Windows（PowerShell）
+
 ```powershell
 npm.cmd run typecheck
 npm.cmd test
 ```
+
+### macOS（bash / zsh）
+
+```bash
+npm run typecheck
+npm test
+```
+
+## macOS 平台说明
+
+macOS 下使用本工具时的关键差异和注意事项：
+
+- **环境前置**：
+  - 已安装 Node.js 和 npm（建议使用官方 LTS 版本，或通过 nvm 管理）。
+  - 已启动 AdsPower 客户端，且 Local API 可用，默认地址仍是 `http://local.adspower.com:50325`。
+  - 如果 macOS 上 `local.adspower.com` 解析不通，可将 `config.local.json` 中的 `localApiBaseUrl` 改为 `http://127.0.0.1:50325`。
+- **命令差异**：
+  - 使用 `cp` 而不是 `Copy-Item`。
+  - 使用 `export ADSPOWER_API_KEY="..."` 而不是 `$env:ADSPOWER_API_KEY=...`。
+  - 使用 `npm`，不要使用 `npm.cmd`（`npm.cmd` 是 Windows / cmd 下的可执行文件名）。
+  - 路径分隔符使用 `/`，不要使用 `\`。
+- **Firefox 采集链路**：Firefox 内核环境并非用本机 Firefox 采集。工具会通过 AdsPower Local API 启动 profile，并使用 AdsPower 返回的 `webdriver` + `marionette_port` 通过 geckodriver + Marionette 附加到 AdsPower 已启动的 Firefox 环境。如果 macOS 版 AdsPower 未返回 `webdriver` 或 `marionette_port`，Firefox 采集会报错，这是为了避免误采本机指纹。
+- **Windows 专用脚本**：`scripts/run-scenario.ps1` 是 Windows PowerShell 辅助脚本，macOS 不作为推荐入口；如需类似辅助，请直接使用 `npm run start -- --config config.local.json` 等 npm 脚本。

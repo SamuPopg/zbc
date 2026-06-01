@@ -31,11 +31,19 @@
 
 ## 配置
 
-复制配置模板：
+### Windows（PowerShell）
 
 ```powershell
 Copy-Item config.example.json config.local.json
 ```
+
+### macOS（bash / zsh）
+
+```bash
+cp config.example.json config.local.json
+```
+
+### 配置文件
 
 编辑 `config.local.json`：
 
@@ -67,10 +75,22 @@ HTML 仍展示第一轮的「设置值 / BS值 / 备注」；JSON 会额外写�
 
 ## 运行
 
+### Windows（PowerShell）
+
 ```powershell
 $env:ADSPOWER_API_KEY="你的 API key"
 npm.cmd run start -- --config config.local.json
 ```
+
+### macOS（bash / zsh）
+
+```bash
+export ADSPOWER_API_KEY="你的 API key"
+npm install
+npm run start -- --config config.local.json
+```
+
+> macOS 平台请直接使用 `npm`，不要写成 `npm.cmd`；`npm.cmd` 是 Windows / cmd 下的可执行文件名，macOS 上不存在。
 
 输出文件生成到 `outputDir`：
 
@@ -199,10 +219,21 @@ HTML 备注可能来自：
 
 对比两份已生成的指纹检测报告，输出差异 HTML 和 JSON。该功能**不启动 AdsPower，不访问 BrowserScan，不重新采集**。
 
+### Windows（PowerShell）
+
 ```powershell
 npm.cmd run compare-reports -- reports\old.json reports\new.json
 npm.cmd run compare-reports -- reports\old.html reports\new.html
 ```
+
+### macOS（bash / zsh）
+
+```bash
+npm run compare-reports -- reports/old.json reports/new.json
+npm run compare-reports -- reports/old.html reports/new.html
+```
+
+> macOS 上路径分隔符使用 `/`，不要写成 `reports\old.json`。
 
 第一个路径为旧报告/基准报告，第二个为新报告/当前报告。HTML 路径会自动查找同名 JSON。
 
@@ -216,7 +247,32 @@ npm.cmd run compare-reports -- reports\old.html reports\new.html
 
 ## 验证
 
+### Windows（PowerShell）
+
 ```powershell
 npm.cmd run typecheck
 npm.cmd test
 ```
+
+### macOS（bash / zsh）
+
+```bash
+npm run typecheck
+npm test
+```
+
+## macOS 平台说明
+
+macOS 下使用本工具时的关键差异和注意事项：
+
+- **环境前置**：
+  - 已安装 Node.js 和 npm（建议使用官方 LTS 版本，或通过 nvm 管理）。
+  - 已启动 AdsPower 客户端，且 Local API 可用，默认地址仍是 `http://local.adspower.com:50325`。
+  - 如果 macOS 上 `local.adspower.com` 解析不通，可将 `config.local.json` 中的 `localApiBaseUrl` 改为 `http://127.0.0.1:50325`。
+- **命令差异**：
+  - 使用 `cp` 而不是 `Copy-Item`。
+  - 使用 `export ADSPOWER_API_KEY="..."` 而不是 `$env:ADSPOWER_API_KEY=...`。
+  - 使用 `npm`，不要使用 `npm.cmd`（`npm.cmd` 是 Windows / cmd 下的可执行文件名）。
+  - 路径分隔符使用 `/`，不要使用 `\`。
+- **Firefox 采集链路**：Firefox 内核环境并非用本机 Firefox 采集。工具会通过 AdsPower Local API 启动 profile，并使用 AdsPower 返回的 `webdriver` + `marionette_port` 通过 geckodriver + Marionette 附加到 AdsPower 已启动的 Firefox 环境。如果 macOS 版 AdsPower 未返回 `webdriver` 或 `marionette_port`，Firefox 采集会报错，这是为了避免误采本机指纹。
+- **Windows 专用脚本**：`scripts/run-scenario.ps1` 是 Windows PowerShell 辅助脚本，macOS 不作为推荐入口；如需类似辅助，请直接使用 `npm run start -- --config config.local.json` 等 npm 脚本。
