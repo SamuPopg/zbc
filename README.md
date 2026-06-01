@@ -1,278 +1,168 @@
 # AdsPower 指纹横向对比工具
 
-这个工具用于批量启动 AdsPower 环境，读取环境指纹设置值，打开 BrowserScan，并生成 HTML/JSON 横向对比报告。报告主界面仍只展示每个指纹项的「设置值」和「BS值」，不做通过/失败判定。
+批量启动 AdsPower profile，分别走 Playwright/CDP（Chrome/Chromium）或 Selenium/Marionette（Firefox 内核）连入已启动环境，采集 BrowserScan 实测值与一组 JS Probe 辅助值，输出可横向对比的 HTML 与 JSON 报告。报告本身不做通过/失败判定，只展示「设置值 / BS值 / Probe值 / 备注」四类信息，便于人工定位问题来源。
 
-## 解决测试人员什么问题
+## 适用场景
 
-这个工具把测试人员手工打开 AdsPower 环境、逐项查看指纹配置、再去 BrowserScan 对照截图的流程，变成批量、可复查、可定位问题来源的报告。
-
-- 批量验收环境指纹是否按配置生效：一次性对比多个 profile 的 UA、时区、语言、屏幕、WebGL、Canvas、WebRTC 等字段，减少重复手工检查。
-- 明确区分问题来源：报告把「设置值」「BS值」「Probe值」分开，便于判断是配置没下发、浏览器运行时没生效、BrowserScan 没采到，还是字段本身不能直接用 JS 判断。
-- 降低误判：Canvas、Audio、WebGL Image、WebRTC 这类字段不会被粗暴写成通过/失败，而是提供中性备注和 Probe 实测值，让测试人员基于证据人工判断。
+- 批量验收环境指纹是否按配置生效：一次对比多个 profile 的 UA、时区、语言、屏幕、WebGL、Canvas、WebRTC 等字段，减少重复手工检查。
+- 明确区分问题来源：报告把「设置值」「BS值」「Probe值」分开，能直接看出问题是配置没下发、浏览器运行时没生效，还是 BrowserScan 没采到。
+- 降低误判：Canvas、Audio、WebGL Image、WebRTC 这类字段不会被粗暴写成通过/失败，而是提供中性备注和 Probe 实测值，由人工基于证据判断。
 - 留下可回溯证据：HTML 适合人工查看和转发，JSON 保留脱敏后的完整排查数据，方便回归、复盘和交给开发定位。
 
-## 数据来源
+## 工作流程总览
 
-报告里有三类来源：
-
-- 设置值：来自 AdsPower 后端配置；后端不可用时，会回退到 AdsPower Local API `/api/v2/browser-profile/list`。
-- BS值：来自 BrowserScan 第三方实测，优先读取 BrowserScan 首页的 `window._getComponent()` 快照。
-- Probe值：工具自己在已启动环境里执行 JS 得到的辅助实测值，只写入 JSON 和 HTML 备注，不会顶替 BS值。
-
-如果 BrowserScan 没采到某个字段，HTML 里的 BS值会保持「未获取」。Probe 值只会在备注里显示为 `Probe实测：xxx`，用于排查 AdsPower 设置是否在浏览器运行时生效。
-
-## 功能
-
-- 批量读取环境设置值。
-- 通过 AdsPower Local API 启动指定环境，并用 Playwright 连接已启动浏览器。
-- 打开 BrowserScan 首页采集第三方实测值。
-- 执行 runtime probe，采集 UA、时区、语言、屏幕、DPR、WebGL、Canvas、Audio、ClientRects、字体、媒体设备、WebRTC ICE candidate 等辅助值。
-- 生成 HTML 报告和脱敏 JSON 报告。
-
-## 配置
-
-### Windows（PowerShell）
-
-```powershell
-Copy-Item config.example.json config.local.json
+```mermaid
+flowchart LR
+    A["编辑 config.local.json"] --> B["启动 AdsPower 客户端"]
+    B --> C["npm run start -- --config config.local.json"]
+    C --> D["读取设置值<br/>后端或 Local API"]
+    D --> E["按 profileIds 依次启动 profile<br/>Local API /api/v2/browser-profile/start"]
+    E --> F{"浏览器类型"}
+    F -->|Chrome / Chromium| G["Playwright 连接<br/>ws.puppeteer / debug_port"]
+    F -->|Firefox 内核| H["Selenium 连接<br/>webdriver + marionette_port"]
+    G --> I["打开 BrowserScan 首页"]
+    H --> I
+    I --> J["采集 BS 值<br/>window._getComponent 快照"]
+    J --> K["执行 runtime Probe<br/>UA / WebGL / Canvas / Audio / WebRTC ..."]
+    K --> L{"稳定性复测"}
+    L -->|stabilityRuns = 1| M["生成 reports/*.html<br/>reports/*.json"]
+    L -->|stabilityRuns 大于 1| N["session / restart 多轮采集<br/>再生成 reports/*"]
+    N --> M
+    M --> O["人工查看 / reports/*.html"]
+    M --> P["差异对比<br/>npm run compare-reports"]
 ```
 
-### macOS（bash / zsh）
+## 快速开始
 
-```bash
-cp config.example.json config.local.json
+1. **安装依赖**（首次或拉新代码后）：
+
+    ```bash
+    # Windows (PowerShell)
+    npm.cmd install
+
+    # macOS / Linux
+    npm install
+    ```
+
+2. **复制配置模板**：
+
+    ```powershell
+    # Windows
+    Copy-Item config.example.json config.local.json
+    ```
+
+    ```bash
+    # macOS / Linux
+    cp config.example.json config.local.json
+    ```
+
+3. **填入 `config.local.json`**：至少需要 `backendBaseUrl`、`localApiBaseUrl`、`browserScanUrl`、`profileIds`。`apiKey` 通过环境变量传入，不写进配置文件。完整字段含义见 [docs/runbook.md § 配置文件字段说明](docs/runbook.md#配置文件字段说明)。
+
+4. **启动 AdsPower 客户端**，确认 Local API 可达（默认 `http://local.adspower.com:50325`）。
+
+5. **设置环境变量并执行采集**：
+
+    ```powershell
+    # Windows
+    $env:ADSPOWER_API_KEY="<你的 API key>"
+    npm.cmd run start -- --config config.local.json
+    ```
+
+    ```bash
+    # macOS / Linux
+    export ADSPOWER_API_KEY="<你的 API key>"
+    npm run start -- --config config.local.json
+    ```
+
+6. **查看报告**：
+
+    - `reports/fingerprint-report-*.html`：人工查看的横向对比报告。
+    - `reports/fingerprint-report-*.json`：脱敏后的完整排查数据，含 `browserScan.componentSnapshot` 原始快照、Probe 原始值、字段校验备注。
+
+第一次跑通后，再看 [docs/runbook.md](docs/runbook.md) 学习如何解读报告、跑稳定性复测、对比两份报告和排查常见问题。
+
+## 浏览器连接链路
+
+工具不会启动你本机的 Chrome 或 Firefox，只会"附加"到 AdsPower 已经启动好的内核环境上。
+
+```mermaid
+flowchart TB
+    subgraph ChromePath["Chrome / Chromium 链路"]
+        C1["AdsPower Local API<br/>POST /api/v2/browser-profile/start"] --> C2["读取返回的 debug_port<br/>与 ws.puppeteer"]
+        C2 --> C3["Playwright 通过 CDP<br/>connectOverCDP"]
+        C3 --> C4["page.goto BrowserScan"]
+    end
+    subgraph FirefoxPath["Firefox 内核链路"]
+        F1["AdsPower Local API<br/>POST /api/v2/browser-profile/start"] --> F2["读取返回的 webdriver<br/>与 marionette_port"]
+        F2 --> F3["geckodriver 通过 --marionette<br/>attach 到 AdsPower 已启动的 Firefox"]
+        F3 --> F4["Selenium WebDriver<br/>驱动 Firefox 打开 BrowserScan"]
+    end
+    ChromePath --> Out["采集 BS 值 + Probe 值"]
+    FirefoxPath --> Out
 ```
 
-### 配置文件
+> 关键点：Firefox 不是"启动本机 Firefox"，而是 geckodriver 通过 `marionette_port` 附加到 AdsPower 已经启动的 Firefox 内核。如果 AdsPower 没有返回 `webdriver` 或 `marionette_port`，Firefox 采集会直接报错，以避免误采到本机指纹。
 
-编辑 `config.local.json`：
+浏览器类型由 `settings.browser` 或 `browser_kernel_config.type` 自动识别，调用方不需要在配置里手动选择。
 
-```json
-{
-  "backendBaseUrl": "https://api.example.test",
-  "localApiBaseUrl": "http://local.adspower.com:50325",
-  "browserScanUrl": "https://www.browserscan.net/",
-  "profileIds": ["PROFILE_ID_1", "PROFILE_ID_2"],
-  "closeAfterRun": true,
-  "runMode": "sequential",
-  "timeoutMs": 60000,
-  "outputDir": "reports",
-  "stabilityRuns": 1,
-  "stabilityMode": "session"
-}
-```
+## 报告怎么看
 
-`browserScanUrl` 建议使用 BrowserScan 首页，例如 `https://www.browserscan.net/`。如果配置为 `/webrtc`、`/canvas` 等单项页面，BrowserScan 快照可能不存在，BS值会显示「未获取」。
+报告围绕四个数据维度展开，每一行是一个指纹字段：
 
-`stabilityRuns` 可设置为 1-5，默认 1。`stabilityMode` 默认为 `session`。
+| 列 | 含义 | 用途 |
+|---|---|---|
+| 设置值 | AdsPower 后端 / Local API 读到的指纹配置 | 看"配置有没有下发到 profile" |
+| BS值 | BrowserScan 第三方页面在当前浏览器环境里的实测值 | 看"profile 实际暴露的指纹" |
+| Probe值 | 工具在当前浏览器环境里执行 JS 得到的辅助实测值 | 只在备注里以 `Probe实测：xxx` 出现，用来判断"设置值有没有真正在运行时生效" |
+| 备注 | 字段依赖、校验结果、清理提示、profile 级摘要 | 解释差异、定位失败环节 |
 
-- `session`：同一个已启动 AdsPower 环境内连续采集 BrowserScan 多次，用于观察 BrowserScan 页面采集、测量时机、WebGPU/Client Rects 等运行时字段是否波动。
-- `restart`：每轮重新启动并关闭同一个 AdsPower profile，用于观察多次冷启动后指纹配置是否一致生效。该模式要求 `closeAfterRun=true`。
+> Probe 是辅助手段，**不能顶替 BS 值**。BrowserScan 没采到时，BS 列仍应显示"未获取"。
 
-HTML 仍展示第一轮的「设置值 / BS值 / 备注」；JSON 会额外写入 `stability.mode`、`stability.runs` 和 `stability.fields`。`changed` 不是失败，只表示多轮采到的值不同。
-
-不要提交真实的 `config.local.json` 或 API key。
-
-## 运行
-
-### Windows（PowerShell）
-
-```powershell
-$env:ADSPOWER_API_KEY="你的 API key"
-npm.cmd run start -- --config config.local.json
-```
-
-### macOS（bash / zsh）
-
-```bash
-export ADSPOWER_API_KEY="你的 API key"
-npm install
-npm run start -- --config config.local.json
-```
-
-> macOS 平台请直接使用 `npm`，不要写成 `npm.cmd`；`npm.cmd` 是 Windows / cmd 下的可执行文件名，macOS 上不存在。
-
-输出文件生成到 `outputDir`：
-
-- `fingerprint-report-*.html`：人工查看的横向对比报告。
-- `fingerprint-report-*.json`：脱敏后的完整排查数据，包含完整 Probe 原始值、BrowserScan `_getComponent()` 原始快照 `browserScan.componentSnapshot` 和每个字段的校验备注。
-
-## Probe 校验
-
-Probe 校验只使用中性状态：
-
-- `一致`：设置值和 Probe 值可以直接对齐，例如 UA、timezone、language、screen_resolution、DPR、hardware_concurrency、device_memory、do_not_track、webgl_config。
-- `需人工判断`：设置值和 Probe 值不是同一种语义，例如 canvas、webgl、webgl_image、audio、client_rects、fonts、media_devices、webrtc。
-- `无法通过 JS 校验`：TLS、出口 IP、HTTP header、服务端网络视角相关字段。
-
-`canvas=1`、`audio=1`、`webgl_image=1` 这类设置不会判断”正确 hash”，只在备注里显示 Probe hash 并标记为 `需人工判断`。
-
-## 状态与返回结果说明
-
-本节说明报告中可能出现的各类状态和返回值的含义，便于查看 JSON 和 HTML 报告时快速理解。措辞保持中性，不做通过/失败判定。
-
-### 配置阶段错误
-
-配置加载阶段会直接终止运行，通常不生成报告。常见错误：
-
-| 错误信息 | 含义 |
-|---|---|
-| `apiKey is required` | 未设置 API key |
-| `profileIds must contain at least one profile id` | 未传入任何 profile ID |
-| `profileIds must only contain non-empty strings` | profile ID 列表中包含空字符串 |
-| `backendBaseUrl is required` | 未设置后端接口地址 |
-| `localApiBaseUrl is required` | 未设置 Local API 地址 |
-| `browserScanUrl is required` | 未设置 BrowserScan 地址 |
-| `stabilityRuns must be an integer between 1 and 5` | 复测轮数超出 1-5 范围 |
-| `stabilityMode must be “session” or “restart”` | 稳定性模式值不合法 |
-| `stabilityMode restart requires closeAfterRun=true when stabilityRuns > 1` | 冷启动复测需要 closeAfterRun=true |
-
-### profile 整体状态（results[].status）
+### profile 整体状态
 
 | 状态 | 含义 |
 |---|---|
 | `ok` | 设置值获取成功，且第一轮 BrowserScan 采集成功 |
-| `partial` | 设置值或第一轮 BrowserScan 有一边不完整。例如设置值获取失败但 BrowserScan 采集成功，或 BrowserScan 第一轮失败 |
-| `failed` | profile 运行过程中出现未处理异常。冷启动复测中的单轮连接失败通常记录到 `stability.runs[].browserScan`，不一定导致整个 profile failed |
+| `partial` | 设置值或第一轮 BrowserScan 有一边不完整 |
+| `failed` | profile 运行过程中出现未处理异常 |
 
-### 设置值状态（results[].settings.fetchStatus）
+更详细的状态/返回值表、稳定性复测的 `unchanged/changed/not_collected` 含义见 [docs/runbook.md § 状态与返回结果说明](docs/runbook.md#状态与返回结果说明)。
 
-| 状态 | 含义 |
+## 常用命令
+
+| 场景 | 命令 |
 |---|---|
-| `ok` | 通过后端或 Local API 获取到了 AdsPower profile 设置 |
-| `failed` | 设置值获取失败，原因在 `results[].settings.error` |
+| 启动采集 | `npm run start -- --config config.local.json` |
+| 跑 TypeScript 类型检查 | `npm run typecheck` |
+| 跑单元测试 | `npm test` |
+| 对比两份报告 | `npm run compare-reports -- reports/old.json reports/new.json` |
+| 稳定性复测（冷启动） | `config.local.json` 里设置 `stabilityRuns: 2~5`、`stabilityMode: "restart"`、`closeAfterRun: true`，再跑 `npm run start` |
+| Windows 进阶入口（可选） | `pwsh scripts/run-scenario.ps1 -ConfigPath config.local.json` |
 
-### BrowserScan 状态（results[].browserScan.status）
-
-| 状态 | 含义 |
-|---|---|
-| `ok` | BrowserScan 采集成功 |
-| `failed` | 启动环境、连接 CDP、访问 BrowserScan 或采集过程失败，原因在 `results[].browserScan.error` |
-
-### 稳定性模式（stability.mode）
-
-| 模式 | 含义 |
-|---|---|
-| `session` | 同一个已启动环境中连续采集多轮，观察 BrowserScan 页面/采集过程本身的短时间波动 |
-| `restart` | 每轮执行 start -> connect -> collect -> close -> stop，观察冷启动后的指纹稳定性 |
-
-`stabilityRuns` 为 1 时通常不生成 stability 摘要；设置为 2-5 时才有复测意义。
-
-### 稳定性字段状态（stability.fields[field].status）
-
-| 状态 | 含义 |
-|---|---|
-| `unchanged` | 多轮采到的非空值一致 |
-| `changed` | 多轮采到的非空值不一致，不是失败，只表示有波动，需结合设置值、BS值、Probe、componentSnapshot 判断 |
-| `not_collected` | 所有轮次都没有采到这个字段 |
-
-失败轮次中没有采到的空值不参与 changed/unchanged 判断。例如 3 轮中 1 轮 BrowserScan 失败，另外 2 轮该字段值相同，则该字段仍为 `unchanged`，但 `samples` 会显示某一轮没有值。`browser_scan_raw_text` 不纳入 stability.fields。
-
-### 单轮稳定性采集结果（stability.runs[].browserScan.status）
-
-| 状态 | 含义 |
-|---|---|
-| `ok` | 该轮 BrowserScan 采集成功 |
-| `failed` | 该轮没有采集到 BrowserScan，原因在 `stability.runs[].browserScan.error` |
-
-“冷启动复测有 1/3 轮未采集到 BrowserScan” 表示 3 轮中有 1 轮失败、2 轮成功，这是该 profile 的复测摘要，不是每个指纹项都失败。
-
-### 字段值来源（BrowserScanValue.source）
-
-| 来源 | 含义 |
-|---|---|
-| `dom` | 从 BrowserScan 页面 DOM 读取 |
-| `runtime` | 从 BrowserScan 页面运行态/组件快照读取 |
-| `probe` | 工具自己的 JS Probe 采集到的辅助实测值 |
-| `not_collected` | 未采到该字段 |
-
-Probe 值不能顶替 BS 值。BrowserScan 没采到时，BS值仍应显示未获取。
-
-### Probe 校验状态
-
-| 状态 | 含义 |
-|---|---|
-| `一致` | 设置值和 Probe 实测值可直接比较且一致 |
-| `需人工判断` | 字段可辅助观察，但不能自动判定 |
-| `无法通过 JS 校验` | 该字段不适合通过页面 JS Probe 验证 |
-
-Probe 是辅助排查工具，不是 BrowserScan 的替代来源。
-
-### 备注来源
-
-HTML 备注可能来自：
-
-- BrowserScan 字段自身备注
-- 字段依赖说明
-- Probe 校验备注
-- Probe 实测值
-- profile 级摘要，例如冷启动复测有多少轮未采集到 BrowserScan
-- 关闭浏览器/关闭环境时的清理提示
-
-备注可能会比较长，因为字段级备注和 profile 级备注都会进入备注区域。
-
-## 只改代理或 WebGL 后，BS 值为什么会变化
-
-同一浏览器环境下，只改了代理信息或 WebGL 元数据配置，BrowserScan 的 webgl、Client Rects、经度、纬度、GPU 等 BS 值发生变化，通常是符合采集原理的正常现象，不是环境配置失败。详细解释和排查方式见 [runbook](docs/runbook.md#为什么只改代理或-webgl-后部分-bs-值会变化)。
+> macOS 上把 `npm.cmd` 换成 `npm`，把 `\` 换成 `/`，把 `Copy-Item` 换成 `cp`，把 `$env:...=...` 换成 `export ...=...`。macOS 上不推荐 `scripts/run-scenario.ps1`，请直接用 `npm run start`。
 
 ## 报告差异对比
 
-对比两份已生成的指纹检测报告，输出差异 HTML 和 JSON。该功能**不启动 AdsPower，不访问 BrowserScan，不重新采集**。
-
-### Windows（PowerShell）
-
-```powershell
-npm.cmd run compare-reports -- reports\old.json reports\new.json
-npm.cmd run compare-reports -- reports\old.html reports\new.html
-```
-
-### macOS（bash / zsh）
+对比两份已经生成的报告，输出 HTML/JSON 差异报告。该功能**不启动 AdsPower，不访问 BrowserScan，不重新采集**。
 
 ```bash
+# 比较 JSON
 npm run compare-reports -- reports/old.json reports/new.json
+
+# 比较 HTML（自动查找同名 JSON）
 npm run compare-reports -- reports/old.html reports/new.html
 ```
 
-> macOS 上路径分隔符使用 `/`，不要写成 `reports\old.json`。
+输出到 `diff-reports/diff-report-<timestamp>.{html,json}`。状态词为 `无变化 / 有变化 / 新增值 / 丢失值 / 均未获取`，详见 [docs/runbook.md § 报告差异对比](docs/runbook.md#报告差异对比)。
 
-第一个路径为旧报告/基准报告，第二个为新报告/当前报告。HTML 路径会自动查找同名 JSON。
+## 安全提醒
 
-输出到 `diff-reports/diff-report-<timestamp>.html` 和 `.json`。
+- `config.local.json` 不应提交到仓库（已在 `.gitignore` 忽略）。`apiKey` 也不写进配置文件，而是通过环境变量 `ADSPOWER_API_KEY` 传入。
+- `runs/` 目录不应提交。Windows 上的 `scripts/run-scenario.ps1` 在写入 `runs/<run>/input/config.json` 时会做递归脱敏（`apiKey`、`token`、`password`、`proxy_password` 等替换为 `[REDACTED]`），但仓库侧仍然不提交 `runs/`。
+- `reports/` 和 `diff-reports/` 同样不应提交。报告里虽然已经做了脱敏，但脱敏依赖字段名匹配，无法覆盖所有敏感写法。
+- 如果 `apiKey` 曾以明文形式落盘到本机任何目录（即使未被 git 追踪），建议立即在 AdsPower 控制台轮换，避免压缩/复制/外发时连带泄露。
 
-状态词：`无变化` `有变化` `新增值` `丢失值` `均未获取`。
+## 进一步阅读
 
-三类来源对比：设置值、BS值、Probe值。Probe 为辅助，不能顶替 BS。
-
-详细说明见 [runbook](docs/runbook.md#报告差异对比)。
-
-## 验证
-
-### Windows（PowerShell）
-
-```powershell
-npm.cmd run typecheck
-npm.cmd test
-```
-
-### macOS（bash / zsh）
-
-```bash
-npm run typecheck
-npm test
-```
-
-## macOS 平台说明
-
-macOS 下使用本工具时的关键差异和注意事项：
-
-- **环境前置**：
-  - 已安装 Node.js 和 npm（建议使用官方 LTS 版本，或通过 nvm 管理）。
-  - 已启动 AdsPower 客户端，且 Local API 可用，默认地址仍是 `http://local.adspower.com:50325`。
-  - 如果 macOS 上 `local.adspower.com` 解析不通，可将 `config.local.json` 中的 `localApiBaseUrl` 改为 `http://127.0.0.1:50325`。
-- **命令差异**：
-  - 使用 `cp` 而不是 `Copy-Item`。
-  - 使用 `export ADSPOWER_API_KEY="..."` 而不是 `$env:ADSPOWER_API_KEY=...`。
-  - 使用 `npm`，不要使用 `npm.cmd`（`npm.cmd` 是 Windows / cmd 下的可执行文件名）。
-  - 路径分隔符使用 `/`，不要使用 `\`。
-- **Firefox 采集链路**：Firefox 内核环境并非用本机 Firefox 采集。工具会通过 AdsPower Local API 启动 profile，并使用 AdsPower 返回的 `webdriver` + `marionette_port` 通过 geckodriver + Marionette 附加到 AdsPower 已启动的 Firefox 环境。如果 macOS 版 AdsPower 未返回 `webdriver` 或 `marionette_port`，Firefox 采集会报错，这是为了避免误采本机指纹。
-- **Windows 专用脚本**：`scripts/run-scenario.ps1` 是 Windows PowerShell 辅助脚本，macOS 不作为推荐入口；如需类似辅助，请直接使用 `npm run start -- --config config.local.json` 等 npm 脚本。
+- [docs/runbook.md](docs/runbook.md)：详细使用说明书，覆盖配置字段、Chrome/Firefox 链路、报告解读、稳定性复测、差异报告、`run-scenario.ps1`、常见问题排查与脱敏说明。
+- [docs/version-history.md](docs/version-history.md)：版本更新记录，按时间倒序记录每次改动的目的、影响范围和注意事项。
