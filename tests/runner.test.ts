@@ -538,7 +538,7 @@ describe("runFingerprintCompare", () => {
     expect(profileResult.notes.join(" ")).not.toContain("组件快照未初始化");
   });
 
-  it("emits profile-level progress events in starting/connecting/scanning/done order", async () => {
+  it("emits profile-level progress events in starting/started/connecting/connected/scanning/completed/done order", async () => {
     vi.mocked(detectBrowserType).mockReturnValue("firefox");
 
     const singleProfileConfig: ToolConfig = {
@@ -574,8 +574,11 @@ describe("runFingerprintCompare", () => {
     expect(events.map((event) => event.type)).toEqual([
       "settings_loaded",
       "profile_starting",
+      "profile_started",
       "browser_connecting",
+      "browser_connected",
       "browser_scanning",
+      "scan_completed",
       "profile_done"
     ]);
 
@@ -587,7 +590,15 @@ describe("runFingerprintCompare", () => {
       profileId: "PROFILE_ID_1"
     });
 
-    const browserConnecting = events[2];
+    const profileStarted = events[2];
+    expect(profileStarted).toMatchObject({
+      type: "profile_started",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1"
+    });
+
+    const browserConnecting = events[3];
     expect(browserConnecting).toMatchObject({
       type: "browser_connecting",
       current: 1,
@@ -596,7 +607,24 @@ describe("runFingerprintCompare", () => {
       browserType: "firefox"
     });
 
-    const done = events[4];
+    const browserConnected = events[4];
+    expect(browserConnected).toMatchObject({
+      type: "browser_connected",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1",
+      browserType: "firefox"
+    });
+
+    const scanCompleted = events[6];
+    expect(scanCompleted).toMatchObject({
+      type: "scan_completed",
+      current: 1,
+      total: 1,
+      profileId: "PROFILE_ID_1"
+    });
+
+    const done = events[7];
     expect(done).toMatchObject({
       type: "profile_done",
       current: 1,
@@ -668,7 +696,7 @@ describe("runFingerprintCompare", () => {
     });
   });
 
-  it("emits per-run starting/connecting/scanning events in restart stability mode", async () => {
+  it("emits per-run starting/started/connecting/connected/scanning/completed events in restart stability mode", async () => {
     vi.mocked(detectBrowserType).mockReturnValue("chromium");
 
     const restartConfig: ToolConfig = {
@@ -698,11 +726,17 @@ describe("runFingerprintCompare", () => {
     expect(types).toEqual([
       "settings_loaded",
       "profile_starting",
+      "profile_started",
       "browser_connecting",
+      "browser_connected",
       "browser_scanning",
+      "scan_completed",
       "profile_starting",
+      "profile_started",
       "browser_connecting",
+      "browser_connected",
       "browser_scanning",
+      "scan_completed",
       "profile_done"
     ]);
 
@@ -712,6 +746,12 @@ describe("runFingerprintCompare", () => {
     expect(connecting).toHaveLength(2);
     for (const event of connecting) {
       expect(event).toMatchObject({ browserType: "chromium" });
+    }
+
+    const scanCompleted = events.filter((event) => event.type === "scan_completed");
+    expect(scanCompleted).toHaveLength(2);
+    for (const event of scanCompleted) {
+      expect(event).toMatchObject({ profileId: "PROFILE_ID_1" });
     }
   });
 

@@ -2,20 +2,47 @@ import { LocalApiStartResponse, ToolConfig } from "./types.js";
 
 type FetchLike = typeof fetch;
 
+const DEFAULT_LOCAL_API_TIMEOUT_MS = 60000;
+
+function localApiTimeoutMs(config: ToolConfig): number {
+  if (typeof config.timeoutMs === "number" && config.timeoutMs > 0) {
+    return config.timeoutMs;
+  }
+  return DEFAULT_LOCAL_API_TIMEOUT_MS;
+}
+
 async function postLocalApi(
   config: ToolConfig,
   path: string,
   body: Record<string, unknown>,
   fetchImpl: FetchLike
 ): Promise<unknown> {
-  const response = await fetchImpl(`${config.localApiBaseUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify(body)
-  });
+  const timeoutMs = localApiTimeoutMs(config);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(`${config.localApiBaseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `Local API ${path} request timed out after ${timeoutMs}ms`
+      );
+    }
+    const original = error instanceof Error ? error.message : String(error);
+    throw new Error(`Local API ${path} request failed: ${original}`);
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     throw new Error(`Local API ${path} failed with HTTP ${response.status}`);
@@ -28,7 +55,12 @@ async function postLocalApi(
   };
 
   if (data.code !== 0) {
-    throw new Error(data.msg || `Local API ${path} returned code ${String(data.code)}`);
+    if (data.msg) {
+      throw new Error(
+        `Local API ${path} returned code ${String(data.code)}: ${data.msg}`
+      );
+    }
+    throw new Error(`Local API ${path} returned code ${String(data.code)}`);
   }
 
   return data.data || {};

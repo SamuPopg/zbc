@@ -38,6 +38,12 @@ export type ProgressEvent =
       profileId: string;
     }
   | {
+      type: "profile_started";
+      current: number;
+      total: number;
+      profileId: string;
+    }
+  | {
       type: "browser_connecting";
       current: number;
       total: number;
@@ -45,7 +51,20 @@ export type ProgressEvent =
       browserType: BrowserType;
     }
   | {
+      type: "browser_connected";
+      current: number;
+      total: number;
+      profileId: string;
+      browserType: BrowserType;
+    }
+  | {
       type: "browser_scanning";
+      current: number;
+      total: number;
+      profileId: string;
+    }
+  | {
+      type: "scan_completed";
       current: number;
       total: number;
       profileId: string;
@@ -265,6 +284,12 @@ async function collectSessionStabilityScans(
         profileId: settings.profileId
       });
       started = await startProfile(config, settings.profileId);
+      onProgress?.({
+        type: "profile_started",
+        current,
+        total,
+        profileId: settings.profileId
+      });
     } catch (startError) {
       notes.push(`启动环境失败：${errorMessage(startError)}`);
       return [];
@@ -278,6 +303,13 @@ async function collectSessionStabilityScans(
         browserType: detectBrowserType(settings)
       });
       automation = await connectAutomation(started, settings);
+      onProgress?.({
+        type: "browser_connected",
+        current,
+        total,
+        profileId: settings.profileId,
+        browserType: detectBrowserType(settings)
+      });
     } catch (connectError) {
       notes.push(`连接浏览器失败：${errorMessage(connectError)}`);
       return [];
@@ -291,7 +323,14 @@ async function collectSessionStabilityScans(
         total,
         profileId: settings.profileId
       });
-      scans.push(await collectBrowserScanWithChecks(config, settings, automation));
+      const scan = await collectBrowserScanWithChecks(config, settings, automation);
+      onProgress?.({
+        type: "scan_completed",
+        current,
+        total,
+        profileId: settings.profileId
+      });
+      scans.push(scan);
     }
     return scans;
   } finally {
@@ -321,6 +360,12 @@ async function collectRestartStabilityScans(
       });
       const started = await startProfile(config, settings.profileId);
       onProgress?.({
+        type: "profile_started",
+        current,
+        total,
+        profileId: settings.profileId
+      });
+      onProgress?.({
         type: "browser_connecting",
         current,
         total,
@@ -329,12 +374,26 @@ async function collectRestartStabilityScans(
       });
       automation = await connectAutomation(started, settings);
       onProgress?.({
+        type: "browser_connected",
+        current,
+        total,
+        profileId: settings.profileId,
+        browserType: detectBrowserType(settings)
+      });
+      onProgress?.({
         type: "browser_scanning",
         current,
         total,
         profileId: settings.profileId
       });
-      scans.push(await collectBrowserScanWithChecks(config, settings, automation));
+      const scan = await collectBrowserScanWithChecks(config, settings, automation);
+      onProgress?.({
+        type: "scan_completed",
+        current,
+        total,
+        profileId: settings.profileId
+      });
+      scans.push(scan);
     } catch (error) {
       scans.push(failedBrowserScanResult(settings.profileId, error));
     } finally {

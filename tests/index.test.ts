@@ -57,6 +57,18 @@ describe("formatProgress", () => {
     );
   });
 
+  it("formats profile_started as 'AdsPower 环境启动成功'", () => {
+    const event: ProgressEvent = {
+      type: "profile_started",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A AdsPower 环境启动成功"
+    );
+  });
+
   it("formats browser_connecting for firefox as '连接 Firefox/Marionette...'", () => {
     const event: ProgressEvent = {
       type: "browser_connecting",
@@ -96,6 +108,45 @@ describe("formatProgress", () => {
     );
   });
 
+  it("formats browser_connected for firefox as 'Firefox/Marionette 已连接'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connected",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "firefox"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A Firefox/Marionette 已连接"
+    );
+  });
+
+  it("formats browser_connected for chromium as 'Chrome/CDP 已连接'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connected",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "chromium"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A Chrome/CDP 已连接"
+    );
+  });
+
+  it("formats browser_connected for unknown as '浏览器已连接'", () => {
+    const event: ProgressEvent = {
+      type: "browser_connected",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "unknown"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 浏览器已连接"
+    );
+  });
+
   it("formats browser_scanning as '打开 BrowserScan 并采集...'", () => {
     const event: ProgressEvent = {
       type: "browser_scanning",
@@ -105,6 +156,18 @@ describe("formatProgress", () => {
     };
     expect(formatProgress(event)).toBe(
       "[1/4] PROFILE_A 打开 BrowserScan 并采集..."
+    );
+  });
+
+  it("formats scan_completed as 'BrowserScan 采集完成'", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A BrowserScan 采集完成"
     );
   });
 

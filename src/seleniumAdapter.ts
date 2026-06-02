@@ -4,21 +4,33 @@ import type { LocalApiStartResponse } from "./types.js";
 import { spawn, type ChildProcess } from "child_process";
 import * as net from "net";
 
+export interface SeleniumAdapterOptions {
+  scriptTimeoutMs?: number;
+}
+
+const DEFAULT_SCRIPT_TIMEOUT_MS = 30000;
+
 export class SeleniumPage implements BrowserAutomationPage {
   private driver: ThenableWebDriver;
   private windowHandle: string;
   private closed = false;
+  private scriptTimeoutMs: number | undefined;
 
-  constructor(driver: ThenableWebDriver, windowHandle: string) {
+  constructor(
+    driver: ThenableWebDriver,
+    windowHandle: string,
+    options: SeleniumAdapterOptions = {}
+  ) {
     this.driver = driver;
     this.windowHandle = windowHandle;
+    this.scriptTimeoutMs = options.scriptTimeoutMs;
   }
 
   async goto(url: string, timeout?: number): Promise<void> {
-    await this.driver.get(url);
-    if (timeout !== undefined) {
-      await this.driver.sleep(timeout);
+    if (typeof timeout === "number" && timeout > 0) {
+      await this.driver.manage().setTimeouts({ pageLoad: timeout });
     }
+    await this.driver.get(url);
   }
 
   async waitForNetworkIdleOrDelay(): Promise<void> {
@@ -52,6 +64,9 @@ export class SeleniumPage implements BrowserAutomationPage {
       "const cb = arguments[arguments.length - 1]; (" +
       script +
       ").then(cb).catch(e => cb({error: e.message}));";
+    if (typeof this.scriptTimeoutMs === "number" && this.scriptTimeoutMs > 0) {
+      await this.driver.manage().setTimeouts({ script: this.scriptTimeoutMs });
+    }
     return this.driver.executeAsyncScript(asyncScript);
   }
 
@@ -79,15 +94,23 @@ export class SeleniumAutomation implements BrowserAutomation {
   private driver: ThenableWebDriver;
   private geckodriverProc: ChildProcess | null;
   private closed = false;
+  private scriptTimeoutMs: number | undefined;
 
-  constructor(driver: ThenableWebDriver, geckodriverProc: ChildProcess | null = null) {
+  constructor(
+    driver: ThenableWebDriver,
+    geckodriverProc: ChildProcess | null = null,
+    options: SeleniumAdapterOptions = {}
+  ) {
     this.driver = driver;
     this.geckodriverProc = geckodriverProc;
+    this.scriptTimeoutMs = options.scriptTimeoutMs;
   }
 
   async newPage(): Promise<BrowserAutomationPage> {
     const handle = await this.driver.getWindowHandle();
-    return new SeleniumPage(this.driver, handle);
+    return new SeleniumPage(this.driver, handle, {
+      scriptTimeoutMs: this.scriptTimeoutMs
+    });
   }
 
   async close(): Promise<void> {
@@ -156,7 +179,10 @@ async function waitForTcpPort(port: number, maxMs = 15000): Promise<void> {
   throw new Error(`Timed out waiting for TCP port ${port} after ${maxMs}ms`);
 }
 
-export async function connectSelenium(started: LocalApiStartResponse): Promise<BrowserAutomation> {
+export async function connectSelenium(
+  started: LocalApiStartResponse,
+  options: SeleniumAdapterOptions = {}
+): Promise<BrowserAutomation> {
   const profileId = started.profileId;
 
   const marionettePort = started.marionettePort;
@@ -241,5 +267,7 @@ export async function connectSelenium(started: LocalApiStartResponse): Promise<B
     );
   }
 
-  return new SeleniumAutomation(driver, geckodriverProc);
+  return new SeleniumAutomation(driver, geckodriverProc, {
+    scriptTimeoutMs: options.scriptTimeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS
+  });
 }

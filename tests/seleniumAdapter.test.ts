@@ -225,3 +225,116 @@ describe("SeleniumPage.close", () => {
     expect(fakeDriver.switchTo).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("SeleniumPage.goto", () => {
+  function makeDriverWithTimers() {
+    const getMock = vi.fn().mockResolvedValue(undefined);
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    const setTimeoutsMock = vi.fn().mockResolvedValue(undefined);
+    const manageMock = vi.fn(() => ({ setTimeouts: setTimeoutsMock }));
+    const driver = {
+      get: getMock,
+      sleep: sleepMock,
+      manage: manageMock
+    };
+    return { driver, getMock, sleepMock, setTimeoutsMock, manageMock };
+  }
+
+  it("calls driver.get and does not sleep afterwards", async () => {
+    const { driver, getMock, sleepMock } = makeDriverWithTimers();
+
+    const page = new SeleniumPage(driver as never, "handle-1");
+    await page.goto("https://example.com", 5000);
+
+    expect(getMock).toHaveBeenCalledWith("https://example.com");
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces pageLoad timeout via setTimeouts before driver.get", async () => {
+    const { driver, setTimeoutsMock, getMock, manageMock } = makeDriverWithTimers();
+
+    const page = new SeleniumPage(driver as never, "handle-1");
+    await page.goto("https://example.com", 7000);
+
+    expect(setTimeoutsMock).toHaveBeenCalledWith({ pageLoad: 7000 });
+    // setTimeouts must be called before driver.get
+    const manageCallOrder = manageMock.mock.invocationCallOrder[0];
+    const getCallOrder = getMock.mock.invocationCallOrder[0];
+    expect(manageCallOrder).toBeLessThan(getCallOrder);
+  });
+
+  it("does not call setTimeouts when timeout is undefined or non-positive", async () => {
+    const { driver, setTimeoutsMock } = makeDriverWithTimers();
+
+    const page = new SeleniumPage(driver as never, "handle-1");
+    await page.goto("https://example.com");
+    expect(setTimeoutsMock).not.toHaveBeenCalled();
+
+    await page.goto("https://example.com", 0);
+    expect(setTimeoutsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SeleniumPage.evaluate (script timeout)", () => {
+  function makeDriverWithScriptMocks() {
+    const executeAsyncScript = vi.fn().mockResolvedValue(undefined);
+    const executeScript = vi.fn().mockResolvedValue(undefined);
+    const setTimeoutsMock = vi.fn().mockResolvedValue(undefined);
+    const manageMock = vi.fn(() => ({ setTimeouts: setTimeoutsMock }));
+    const driver = {
+      executeAsyncScript,
+      executeScript,
+      manage: manageMock
+    };
+    return { driver, executeAsyncScript, executeScript, setTimeoutsMock, manageMock };
+  }
+
+  it("sets script timeout before executeAsyncScript when configured", async () => {
+    const { driver, executeAsyncScript, setTimeoutsMock, manageMock } = makeDriverWithScriptMocks();
+
+    const page = new SeleniumPage(driver as never, "handle-1", { scriptTimeoutMs: 30000 });
+    await page.evaluate("return 1");
+
+    expect(setTimeoutsMock).toHaveBeenCalledWith({ script: 30000 });
+    const manageCallOrder = manageMock.mock.invocationCallOrder[0];
+    const executeCallOrder = executeAsyncScript.mock.invocationCallOrder[0];
+    expect(manageCallOrder).toBeLessThan(executeCallOrder);
+  });
+
+  it("does not set script timeout when scriptTimeoutMs is not provided", async () => {
+    const { driver, setTimeoutsMock } = makeDriverWithScriptMocks();
+
+    const page = new SeleniumPage(driver as never, "handle-1");
+    await page.evaluate("return 1");
+
+    expect(setTimeoutsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not set script timeout for synchronous function evaluations", async () => {
+    const { driver, setTimeoutsMock, executeScript } = makeDriverWithScriptMocks();
+
+    const page = new SeleniumPage(driver as never, "handle-1", { scriptTimeoutMs: 30000 });
+    await page.evaluate(() => 42);
+
+    expect(setTimeoutsMock).not.toHaveBeenCalled();
+    expect(executeScript).toHaveBeenCalled();
+  });
+});
+
+describe("SeleniumAutomation forwards scriptTimeoutMs to newPage", () => {
+  it("passes scriptTimeoutMs from constructor to SeleniumPage", async () => {
+    const getWindowHandle = vi.fn().mockResolvedValue("handle-x");
+    const driver = { getWindowHandle } as never;
+    const automation = new SeleniumAutomation(driver, null, { scriptTimeoutMs: 25000 });
+
+    const page = await automation.newPage();
+    expect(getWindowHandle).toHaveBeenCalled();
+    expect(page).toBeInstanceOf(SeleniumPage);
+    // Indirectly verify: subsequent evaluate should call setTimeouts with script=25000
+    const setTimeoutsMock = vi.fn().mockResolvedValue(undefined);
+    (driver as unknown as { manage: () => unknown; executeAsyncScript: () => unknown }).manage = () => ({ setTimeouts: setTimeoutsMock });
+    (driver as unknown as { executeAsyncScript: () => unknown }).executeAsyncScript = vi.fn().mockResolvedValue(undefined);
+    await page.evaluate("return 1");
+    expect(setTimeoutsMock).toHaveBeenCalledWith({ script: 25000 });
+  });
+});

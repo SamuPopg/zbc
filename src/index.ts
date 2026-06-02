@@ -30,6 +30,12 @@ function browserLabel(browserType: "firefox" | "chromium" | "unknown"): string {
   return "连接浏览器...";
 }
 
+function browserConnectedLabel(browserType: "firefox" | "chromium" | "unknown"): string {
+  if (browserType === "firefox") return "Firefox/Marionette 已连接";
+  if (browserType === "chromium") return "Chrome/CDP 已连接";
+  return "浏览器已连接";
+}
+
 export function formatProgress(event: ProgressEvent): string {
   const { current, total, profileId } = event;
   switch (event.type) {
@@ -37,10 +43,16 @@ export function formatProgress(event: ProgressEvent): string {
       return `[${current}/${total}] ${profileId} 读取设置值完成`;
     case "profile_starting":
       return `[${current}/${total}] ${profileId} 启动 AdsPower 环境...`;
+    case "profile_started":
+      return `[${current}/${total}] ${profileId} AdsPower 环境启动成功`;
     case "browser_connecting":
       return `[${current}/${total}] ${profileId} ${browserLabel(event.browserType)}`;
+    case "browser_connected":
+      return `[${current}/${total}] ${profileId} ${browserConnectedLabel(event.browserType)}`;
     case "browser_scanning":
       return `[${current}/${total}] ${profileId} 打开 BrowserScan 并采集...`;
+    case "scan_completed":
+      return `[${current}/${total}] ${profileId} BrowserScan 采集完成`;
     case "profile_done":
       return `[${current}/${total}] ${profileId} 完成：${event.status}，BS 字段 ${event.bsFieldCount} 个，Probe ${event.probeFieldCount} 个`;
   }
