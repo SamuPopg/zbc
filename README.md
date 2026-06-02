@@ -128,6 +128,10 @@ flowchart TB
 
 更详细的状态/返回值表、稳定性复测的 `unchanged/changed/not_collected` 含义见 [docs/runbook.md § 状态与返回结果说明](docs/runbook.md#状态与返回结果说明)。
 
+### 顶部摘要与状态 badge
+
+报告顶部有 7 个摘要 tile，从左到右依次是：Profile 数、Fingerprint 项目数、OK、Partial、Error、需人工判断、未获取 BS 值。每个 profile 的列头上还会带一个状态 badge（OK / Partial / Error）。这些是帮助一眼看清采集完整度的速览，详情看下面四类数据维度和 runbook 里的解读说明。
+
 ## 常用命令
 
 | 场景 | 命令 |

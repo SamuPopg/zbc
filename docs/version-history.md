@@ -10,6 +10,34 @@
 - 本文档不替代 README、runbook、superpowers 计划文档，只补充“这次改动做了什么、为什么、影响谁”。
 - 报告功能不引入通过/失败判定；保持中性描述。
 
+## 2026-06-02 - HTML 报告 UI 改版
+
+### 更新内容
+
+- HTML 报告视觉改为企业审计 / QA report 风格：白底浅灰面板、灰色 hairline 1px 分隔，IBM Blue `#0f62fe` 作为唯一品牌色，状态色 `#24a148` / `#f1c21b` / `#da1e28` 仅出现在状态 badge 上；去掉了之前的大色块 hero、圆角和阴影。
+- 报告顶部新增 7 个摘要 tile：Profile 数、Fingerprint 项目数、OK、Partial、Error、需人工判断、未获取 BS 值；profile header 增加状态 badge（OK / Partial / Error）。
+- 表格列宽拆分：首列 170px 固定，profile 数据列 280-320px；移动端 summary 改为 2 列布局，第 7 个 tile 跨满整行避免出现空灰块；"备注" 标签使用 `white-space: nowrap` 避免拆字。
+
+### 影响范围
+
+- 报告：仅 HTML 报告视觉与人工阅读体验。`reports/*.json` 字段结构、脱敏、中性化措辞、`stability` 块、Probe 校验状态等保持不变。
+- 内部模块：`src/reportWriter.ts`（CSS 与 HTML 结构重写，业务函数未变）。
+- 测试：`tests/reportWriter.test.ts` 新增 Carbon UI class 存在 / 旧 class 缺失 / 小屏 summary 规则等断言；XSS、脱敏、neutralize 等老断言全部保留。
+- 配置：无需修改 `config.local.json`。
+
+### 验证结果
+
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd test -- tests/reportWriter.test.ts`：6/6 通过。
+- `npm.cmd test`：14 个测试文件，161/161 通过。
+- 旧 commit：`94eb3aa Redesign fingerprint report UI`。
+
+### 注意事项
+
+- 旧 HTML 报告不会自动变成新视觉风格，需要用新版代码重新跑采集并重新生成 `reports/*.html`。
+- 旧报告 JSON 仍可继续阅读与对比，新 HTML 与旧 JSON 字段名完全兼容。
+- 顶部摘要 tile 和状态 badge 仅用于人工快速定位采集完整性和复核重点，不替代对单字段（设置值 / BS值 / Probe / 备注）的中性判断。
+
 ## 2026-05-29 - Firefox 指纹采集稳定性优化
 
 ### 更新内容

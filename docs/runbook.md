@@ -157,6 +157,10 @@ sequenceDiagram
 
 如果 BrowserScan 没采到某个字段，BS 列保持"未获取"。即使 Probe 采到了 runtime 值，也只会在备注里以 `Probe实测：xxx` 出现。
 
+### 顶部摘要与状态 badge
+
+报告顶部有 7 个摘要 tile（Profile 数、Fingerprint 项目数、OK、Partial、Error、需人工判断、未获取 BS 值），每个 profile 列头还有一个状态 badge（OK / Partial / Error）。它们是用来帮助一眼看清采集完整度的速览，不替代针对单字段的中性判断；具体结论仍要看"设置值 / BS值 / Probe / 备注"四类数据维度。HTML 展示层调整不改变 JSON 报告的字段结构，`results[].status`、`browserScan.probe.checks`、`stability` 等保持一致。
+
 ### profile 状态组合
 
 profile 级 `status` 的判定由 `src/runner.ts` 的 `statusFor` 与外层 `catch` 共同决定，规则如下：
