@@ -144,7 +144,7 @@ function neutralizeText(value: string): string {
     .replace(new RegExp(unavailableJsCheck, "g"), "无法通过 JS 校验");
 }
 
-function neutralizeStatus(status: ProfileRunResult["status"] | NonNullable<ProfileRunResult["browserScan"]>["status"]): string {
+function neutralizeStatus(status: string): string {
   return status === "failed" ? "error" : status;
 }
 
@@ -358,10 +358,64 @@ function cellFor(result: ReportOutputData["results"][number], key: string): stri
   const settingBlock = renderValueBlock("设置值", settingsValue, "setting");
   const bsBlock = renderValueBlock("BS值", browserScanValue?.value, "bs");
   const noteHtml = fieldNoteItems.length > 0
-    ? `<div class="note-line"><span class="value-label setting">备注</span><span class="note-text">${renderNoteItems(fieldNoteItems)}</span></div>`
-    : `<div class="note-line"><span class="value-label setting">备注</span><span class="note-text missing">未获取</span></div>`;
+    ? `<div class="note-line"><span class="value-label note">备注</span><span class="note-text">${renderNoteItems(fieldNoteItems)}</span></div>`
+    : `<div class="note-line"><span class="value-label note">备注</span><span class="note-text missing">未获取</span></div>`;
 
   return `<div class="value-pair">${settingBlock}${bsBlock}${noteHtml}</div>`;
+}
+
+function countByStatus(results: ReportOutputData["results"]): { ok: number; partial: number; error: number } {
+  const counts = { ok: 0, partial: 0, error: 0 };
+  for (const result of results) {
+    const status = neutralizeStatus(result.status);
+    if (status === "ok") counts.ok += 1;
+    else if (status === "partial") counts.partial += 1;
+    else if (status === "error") counts.error += 1;
+  }
+  return counts;
+}
+
+function countProbeChecks(results: ReportOutputData["results"]): { manual: number; jsUnavailable: number; consistent: number } {
+  const counts = { manual: 0, jsUnavailable: 0, consistent: 0 };
+  for (const result of results) {
+    const checks = result.browserScan?.probe?.checks;
+    if (!checks) continue;
+    for (const check of Object.values(checks)) {
+      if (check.status === "需人工判断") counts.manual += 1;
+      else if (check.status === "无法通过 JS 校验") counts.jsUnavailable += 1;
+      else if (check.status === "一致") counts.consistent += 1;
+    }
+  }
+  return counts;
+}
+
+function countMissingBsValues(results: ReportOutputData["results"]): number {
+  let missing = 0;
+  for (const result of results) {
+    const values = result.browserScan?.values;
+    if (!values) {
+      missing += REPORT_FINGERPRINT_KEYS.length;
+      continue;
+    }
+    for (const key of REPORT_FINGERPRINT_KEYS) {
+      const v = values[key];
+      if (!v || v.value === undefined || v.value === null) {
+        missing += 1;
+      }
+    }
+  }
+  return missing;
+}
+
+function statusBadgeHtml(status: string): string {
+  const normalized = neutralizeStatus(status as ProfileRunResult["status"]);
+  const labelMap: Record<string, string> = {
+    ok: "OK",
+    partial: "Partial",
+    error: "Error"
+  };
+  const label = labelMap[normalized] ?? "Unknown";
+  return `<span class="status-badge status-${escapeHtml(normalized)}">${label}</span>`;
 }
 
 function buildHtml(report: ReportOutputData): string {
@@ -372,9 +426,13 @@ function buildHtml(report: ReportOutputData): string {
     hour: "2-digit",
     minute: "2-digit"
   });
+  const stamp = report.generatedAt.replace(/[:.]/g, "-");
 
   const profileIds = report.profileIds;
   const fingerprintCount = REPORT_FINGERPRINT_KEYS.length;
+  const statusCounts = countByStatus(report.results);
+  const probeCounts = countProbeChecks(report.results);
+  const missingBsCount = countMissingBsValues(report.results);
 
   const profileHeaders = report.results.map((result) => {
     const name = result.settings.name;
@@ -386,8 +444,11 @@ function buildHtml(report: ReportOutputData): string {
     const notesHtml = result.notes.length > 0
       ? `<div class="profile-notes">${result.notes.map(n => escapeHtml(n)).join("；")}</div>`
       : "";
-    return `<th class="profile-head">
-      <div class="profile-id">${escapeHtml(result.profileId)}</div>
+    return `<th class="profile-head profile-cell">
+      <div class="profile-id-row">
+        <span class="profile-id">${escapeHtml(result.profileId)}</span>
+        ${statusBadgeHtml(result.status)}
+      </div>
       ${metaHtml}
       ${notesHtml}
     </th>`;
@@ -396,11 +457,11 @@ function buildHtml(report: ReportOutputData): string {
   const rows = REPORT_FINGERPRINT_KEYS.map((key) => {
     const { label } = fingerprintLabel(key);
     const cells = report.results
-      .map((result) => `<td class="item-col">${cellFor(result, key)}</td>`)
+      .map((result) => `<td class="profile-cell">${cellFor(result, key)}</td>`)
       .join("");
 
     return `<tr>
-      <th class="item-col sticky-col">
+      <th class="field-col sticky-col">
         <div class="item-label">${escapeHtml(label)}</div>
         <div class="item-key">${escapeHtml(key)}</div>
       </th>
@@ -408,21 +469,42 @@ function buildHtml(report: ReportOutputData): string {
     </tr>`;
   }).join("\n");
 
+  const tiles: Array<{ value: string; label: string }> = [
+    { value: String(profileIds.length), label: "Profile 数" },
+    { value: String(fingerprintCount), label: "Fingerprint 项目数" },
+    { value: String(statusCounts.ok), label: "OK" },
+    { value: String(statusCounts.partial), label: "Partial" },
+    { value: String(statusCounts.error), label: "Error" },
+    { value: String(probeCounts.manual), label: "需人工判断" },
+    { value: String(missingBsCount), label: "未获取 BS 值" }
+  ];
+  const tilesHtml = tiles.map((t) => `
+      <div class="summary-tile">
+        <div class="tile-value">${escapeHtml(t.value)}</div>
+        <div class="tile-label">${escapeHtml(t.label)}</div>
+      </div>`).join("");
+
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AdsPower 指纹横向对比报告</title>
   <style>
     :root {
-      --page-bg: #f5f5f7;
-      --surface: #ffffff;
-      --ink: #1d1d1f;
-      --muted: #6e6e73;
-      --border: #d2d2d7;
-      --strong-border: #86868b;
-      --accent: #0071e3;
-      --accent-soft: rgba(0, 113, 227, 0.10);
+      --page-bg: #ffffff;
+      --surface-1: #f4f4f4;
+      --surface-2: #ffffff;
+      --ink: #161616;
+      --ink-muted: #525252;
+      --ink-subtle: #8d8d8d;
+      --hairline: #e0e0e0;
+      --accent: #0f62fe;
+      --accent-hover: #0353e9;
+      --status-ok: #24a148;
+      --status-warning: #f1c21b;
+      --status-error: #da1e28;
+      --status-neutral: #8d8d8d;
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -432,72 +514,117 @@ function buildHtml(report: ReportOutputData): string {
       margin: 0;
       background: var(--page-bg);
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Microsoft YaHei", sans-serif;
-      font-size: 16px;
-      line-height: 1.5;
+      font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.4;
+      letter-spacing: 0.16px;
       text-rendering: optimizeLegibility;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ─── masthead ─────────────────────────────────────────────────── */
-    .report-masthead {
-      background: var(--ink);
-      color: var(--surface);
-      padding: 48px 40px 40px;
+    /* ─── report header (light, compact, Carbon) ──────────────────── */
+    .report-header {
+      background: var(--page-bg);
+      border-bottom: 1px solid var(--hairline);
+      padding: 24px 32px 20px;
     }
-    .masthead-eyebrow {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 13px;
-      letter-spacing: 0.08em;
+    .header-eyebrow {
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.32px;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.5);
-      margin: 0 0 12px;
-    }
-    .masthead-title {
-      font-size: 32px;
-      font-weight: 600;
-      letter-spacing: -0.015em;
+      color: var(--ink-subtle);
       margin: 0 0 8px;
-      color: var(--surface);
     }
-    .masthead-subtitle {
-      font-size: 17px;
-      color: rgba(255,255,255,0.6);
-      margin: 0 0 32px;
+    .header-title {
+      font-size: 24px;
+      font-weight: 300;
+      letter-spacing: 0;
+      color: var(--ink);
+      margin: 0 0 4px;
     }
-    .summary-strip {
+    .header-subtitle {
+      font-size: 14px;
+      color: var(--ink-muted);
+      margin: 0 0 20px;
+    }
+    .header-meta {
       display: flex;
       gap: 24px;
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-bottom: 20px;
       flex-wrap: wrap;
     }
-    .summary-card {
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 10px;
-      padding: 16px 20px;
-      min-width: 120px;
+    .header-meta-item .meta-key {
+      color: var(--ink-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.32px;
+      margin-right: 6px;
     }
-    .summary-value {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1px;
+      background: var(--hairline);
+      border: 1px solid var(--hairline);
+    }
+    @media (max-width: 640px) {
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .summary-tile:nth-child(7) {
+        grid-column: 1 / -1;
+      }
+    }
+    .summary-tile {
+      background: var(--surface-1);
+      padding: 12px 16px;
+      min-height: 64px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .tile-value {
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       font-size: 24px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--surface);
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.2;
     }
-    .summary-label {
-      font-size: 14px;
-      color: rgba(255,255,255,0.5);
+    .tile-label {
+      font-size: 12px;
+      color: var(--ink-muted);
       margin-top: 4px;
+      letter-spacing: 0.16px;
     }
+
+    /* ─── status badges (Carbon) ───────────────────────────────────── */
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.32px;
+      text-transform: uppercase;
+      border-radius: 2px;
+      color: #ffffff;
+      background: var(--status-neutral);
+      line-height: 1.4;
+    }
+    .status-badge.status-ok { background: var(--status-ok); }
+    .status-badge.status-partial { background: var(--status-warning); color: var(--ink); }
+    .status-badge.status-error { background: var(--status-error); }
 
     /* ─── main content ─────────────────────────────────────────────── */
     .report-main {
-      padding: 32px 40px 48px;
+      padding: 24px 32px 32px;
     }
     .comparison-shell {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 18px;
+      background: var(--surface-2);
+      border: 1px solid var(--hairline);
       overflow: hidden;
     }
     .table-scroll {
@@ -513,11 +640,12 @@ function buildHtml(report: ReportOutputData): string {
     }
     .compare-table th,
     .compare-table td {
-      border-bottom: 1px solid var(--border);
-      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--hairline);
+      border-right: 1px solid var(--hairline);
       padding: 0;
       text-align: left;
       vertical-align: top;
+      background: var(--surface-2);
     }
     .compare-table th:last-child,
     .compare-table td:last-child {
@@ -533,67 +661,77 @@ function buildHtml(report: ReportOutputData): string {
       position: sticky;
       top: 0;
       z-index: 2;
-      background: var(--page-bg);
-      padding: 14px 16px;
+      background: var(--surface-1);
+      padding: 12px 16px;
     }
     .compare-table thead th:first-child {
       position: sticky;
       top: 0;
       left: 0;
       z-index: 3;
+      background: var(--surface-1);
     }
 
-    /* ─── sticky first column ─────────────────────────────────────── */
+    /* ─── sticky first column (170px) ───────────────────────────── */
     .sticky-col {
       position: sticky;
       left: 0;
       z-index: 1;
-      background: var(--surface);
-      min-width: 120px;
-      max-width: 120px;
+      background: var(--surface-2);
     }
     .compare-table thead th.sticky-col {
       z-index: 3;
-      background: var(--page-bg);
+      background: var(--surface-1);
+    }
+    .field-col {
+      min-width: 170px;
+      max-width: 170px;
+      width: 170px;
     }
 
     /* ─── profile header cell ─────────────────────────────────────── */
     .profile-head {
-      min-width: 220px;
       text-align: left;
     }
+    .profile-cell {
+      min-width: 280px;
+      max-width: 320px;
+    }
+
+    .profile-id-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .profile-id {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 16px;
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 14px;
       font-weight: 600;
       color: var(--ink);
     }
     .profile-meta {
-      font-size: 13px;
-      color: var(--muted);
-      margin-top: 3px;
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-top: 4px;
     }
     .profile-notes {
       font-size: 12px;
-      color: var(--muted);
-      margin-top: 4px;
-      font-style: italic;
+      color: var(--ink-muted);
+      margin-top: 6px;
+      line-height: 1.4;
     }
 
     /* ─── fingerprint item cell ───────────────────────────────────── */
-    .item-col {
-      min-width: 120px;
-      max-width: 120px;
-    }
     .item-label {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--ink);
     }
     .item-key {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 13px;
-      color: var(--muted);
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: var(--ink-subtle);
       margin-top: 2px;
     }
 
@@ -610,19 +748,22 @@ function buildHtml(report: ReportOutputData): string {
       gap: 4px;
     }
     .value-label {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 12px;
-      letter-spacing: 0.06em;
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 11px;
+      letter-spacing: 0.32px;
       text-transform: uppercase;
       font-weight: 600;
     }
-    .value-label.setting { color: var(--muted); }
+    .value-label.setting { color: var(--ink-muted); }
     .value-label.bs { color: var(--accent); }
+    .value-label.note {
+      color: var(--ink-muted);
+      white-space: nowrap;
+    }
 
     .value-box {
       background: var(--page-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      border: 1px solid var(--hairline);
       padding: 8px 10px;
       overflow: auto;
       max-height: 160px;
@@ -630,33 +771,35 @@ function buildHtml(report: ReportOutputData): string {
     .value-box.missing {
       background: transparent;
       border-style: dashed;
+      border-color: var(--ink-subtle);
     }
     .value-box pre {
       margin: 0;
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 14px;
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 13px;
       white-space: pre-wrap;
       word-break: break-word;
       color: var(--ink);
     }
     .value-box.missing pre {
-      color: var(--muted);
+      color: var(--ink-subtle);
       font-style: italic;
     }
 
     .note-line {
       display: flex;
       align-items: baseline;
-      gap: 6px;
-      padding-top: 4px;
-      border-top: 1px solid var(--border);
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--hairline);
     }
     .note-text {
-      font-size: 14px;
-      color: var(--muted);
+      font-size: 13px;
+      color: var(--ink-muted);
     }
     .note-text.missing {
       font-style: italic;
+      color: var(--ink-subtle);
     }
 
     details {
@@ -664,32 +807,31 @@ function buildHtml(report: ReportOutputData): string {
     }
     details summary {
       cursor: pointer;
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 14px;
+      font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 13px;
       color: var(--accent);
-      padding: 4px 0;
+      padding: 2px 0;
       list-style: none;
     }
     details summary::-webkit-details-marker { display: none; }
-    details summary::before { content: "▶ "; font-size: 12px; }
-    details[open] summary::before { content: "▼ "; font-size: 12px; }
+    details summary::before { content: "▶ "; font-size: 11px; }
+    details[open] summary::before { content: "▼ "; font-size: 11px; }
     details pre {
-      margin: 6px 0 0;
+      margin: 4px 0 0;
       padding: 8px;
-      background: var(--page-bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      font-size: 14px;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      font-size: 13px;
       white-space: pre-wrap;
       word-break: break-word;
     }
 
     /* ─── footer ──────────────────────────────────────────────────── */
     .report-footer {
-      padding: 20px 40px;
-      border-top: 1px solid var(--border);
-      font-size: 14px;
-      color: var(--muted);
+      padding: 16px 32px;
+      border-top: 1px solid var(--hairline);
+      font-size: 12px;
+      color: var(--ink-muted);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -699,23 +841,15 @@ function buildHtml(report: ReportOutputData): string {
   </style>
 </head>
 <body>
-  <header class="report-masthead">
-    <p class="masthead-eyebrow">Fingerprint Compare</p>
-    <h1 class="masthead-title">AdsPower 指纹横向对比报告</h1>
-    <p class="masthead-subtitle">横向查看每个环境的设置值与 BrowserScan 实测值</p>
-    <div class="summary-strip">
-      <div class="summary-card">
-        <div class="summary-value">${escapeHtml(generatedAt)}</div>
-        <div class="summary-label">生成时间</div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-value">${profileIds.length}</div>
-        <div class="summary-label">Profile 数</div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-value">${fingerprintCount}</div>
-        <div class="summary-label">Fingerprint 项目数</div>
-      </div>
+  <header class="report-header">
+    <p class="header-eyebrow">Fingerprint Compare / QA Report</p>
+    <h1 class="header-title">AdsPower 指纹横向对比报告</h1>
+    <p class="header-subtitle">横向查看每个环境的设置值与 BrowserScan 实测值</p>
+    <div class="header-meta">
+      <span class="header-meta-item"><span class="meta-key">生成时间</span>${escapeHtml(generatedAt)}</span>
+      <span class="header-meta-item"><span class="meta-key">报告 ID</span>${escapeHtml(stamp)}</span>
+    </div>
+    <div class="summary-grid">${tilesHtml}
     </div>
   </header>
 
@@ -725,7 +859,7 @@ function buildHtml(report: ReportOutputData): string {
         <table class="compare-table">
           <thead>
             <tr>
-              <th class="sticky-col">指纹项</th>
+              <th class="field-col sticky-col">指纹项</th>
               ${profileHeaders}
             </tr>
           </thead>

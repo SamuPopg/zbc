@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { writeReports } from "../src/reportWriter.js";
 
 describe("writeReports", () => {
-  it("produces Apple-style HTML with no secrets or pass/fail wording", async () => {
+  it("produces Carbon-inspired QA report HTML with no secrets or pass/fail wording", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fingerprint-report-"));
     try {
       const output = await writeReports(
@@ -107,6 +107,40 @@ describe("writeReports", () => {
       expect(html).toContain("PROFILE_ID_1");
       expect(html).toContain("ACC_001");
       expect(html).toContain("测试环境-A");
+
+      // Carbon-inspired QA Report structure
+      expect(html).toContain('class="report-header"');
+      expect(html).toContain('class="summary-grid"');
+      expect(html).toContain('class="summary-tile"');
+      expect(html).toContain('class="status-badge');
+      expect(html).toMatch(/class="status-badge status-error"/);
+      // Old Apple-style masthead is gone
+      expect(html).not.toContain("report-masthead");
+      expect(html).not.toContain("masthead-eyebrow");
+      expect(html).not.toContain("masthead-title");
+      // 备注 label is preserved and not collapsed
+      expect(html).toContain("备注");
+      const noteLabelMatch = html.match(/<span class="value-label note">备注<\/span>/);
+      expect(noteLabelMatch).not.toBeNull();
+      // 备注 label has white-space: nowrap to keep it on a single line
+      const noteLabelCss = html.match(/\.value-label\.note\s*\{[^}]*\}/);
+      expect(noteLabelCss).not.toBeNull();
+      expect(noteLabelCss![0]).toContain("white-space: nowrap");
+      // Missing BS value renders as dashed-border "未获取"
+      expect(html).toMatch(/<div class="value-box missing">[\s\S]*?未获取[\s\S]*?<\/div>/);
+
+      // Carbon column split: first column field-col (170px), data columns profile-cell (280-320px)
+      expect(html).toMatch(/<th class="field-col sticky-col">/);
+      expect(html).toMatch(/<td class="profile-cell">/);
+      const fieldColCss = html.match(/\.field-col\s*\{[^}]*\}/);
+      expect(fieldColCss).not.toBeNull();
+      expect(fieldColCss![0]).toContain("170px");
+      // Mobile summary rule prevents the empty trailing tile
+      const mobileSummaryCss = html.match(/@media\s*\(max-width:\s*640px\)\s*\{[\s\S]*?\.summary-grid\s*\{[\s\S]*?\}\s*\.summary-tile:nth-child\(7\)[\s\S]*?\}\s*\}/);
+      expect(mobileSummaryCss).not.toBeNull();
+      // Old item-col class is no longer used
+      expect(html).not.toContain('class="item-col');
+      expect(html).not.toMatch(/\.item-col\s*\{/);
 
       // UA value
       expect(html).toContain("Mozilla/5.0");
