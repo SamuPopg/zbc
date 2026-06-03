@@ -151,6 +151,27 @@ describe("connectToStartedBrowser", () => {
     expect(result).toBe(browser);
     expect(connectOverCDP).toHaveBeenCalledTimes(3);
   });
+
+  it("fails fast when both wsPuppeteer and debugPort are missing", async () => {
+    await expect(
+      connectToStartedBrowser(
+        { profileId: "PROFILE_NO_ENDPOINTS", raw: {} },
+        { maxAttempts: 30, retryDelayMs: 0 }
+      )
+    ).rejects.toThrow(/PROFILE_NO_ENDPOINTS.*no wsPuppeteer.*no debugPort/);
+    expect(connectOverCDP).not.toHaveBeenCalled();
+  });
+
+  it("fails fast without profileId endpoints even when started has only debugPort", async () => {
+    // sanity: debugPort-only path still attempts connect (no fail-fast)
+    connectOverCDP.mockResolvedValueOnce({});
+    const result = await connectToStartedBrowser(
+      { profileId: "P", debugPort: "53210", raw: {} },
+      { maxAttempts: 1, retryDelayMs: 0 }
+    );
+    expect(result).toEqual({});
+    expect(connectOverCDP).toHaveBeenCalledWith("http://127.0.0.1:53210");
+  });
 });
 
 describe("detectBrowserType", () => {

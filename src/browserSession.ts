@@ -44,6 +44,12 @@ export async function connectToStartedBrowser(
   started: LocalApiStartResponse,
   options: BrowserConnectOptions = {}
 ): Promise<Browser> {
+  if (!started.wsPuppeteer && !started.debugPort) {
+    throw new Error(
+      `profile ${started.profileId} has no wsPuppeteer and no debugPort; cannot connect over CDP`
+    );
+  }
+
   const maxAttempts = options.maxAttempts ?? DEFAULT_CONNECT_MAX_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_CONNECT_RETRY_DELAY_MS;
 

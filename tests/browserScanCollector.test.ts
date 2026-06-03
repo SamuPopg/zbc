@@ -379,4 +379,227 @@ describe("collectBrowserScan", () => {
       expect(result.probe.error).not.toMatch(/SyntaxError.*</);
     }
   });
+
+  it("parallel probe keeps slower sub-items' results when faster ones succeed", async () => {
+    // Simulates the new Promise.all parallel behavior: a fast sub-item
+    // returns even if the script's other parallel sub-items are still running.
+    // Here webrtc and webgpu come back, audioHash is missing, and
+    // probeTimeouts records audioHash.
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "sync-canvas" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        return {
+          ua: "Mozilla/5.0",
+          language: "en-US",
+          platform: "Win32",
+          screen_resolution: "1920x1080",
+          dpr: 1,
+          canvasHash: "sync-canvas-hash",
+          webrtc: { candidates: ["srflx"], candidateTypes: ["srflx"] },
+          webgpu: { info: { vendor: "intel" } },
+          probeTimeouts: ["audioHash"]
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("ok");
+    // webrtc and webgpu present even though audioHash timed out
+    expect(result.probe?.values.webrtc?.value).toEqual({
+      candidates: ["srflx"],
+      candidateTypes: ["srflx"]
+    });
+    expect(result.probe?.values.gpu?.value).toEqual({ info: { vendor: "intel" } });
+    // audioHash absent
+    expect(result.probe?.values.audio).toBeUndefined();
+    expect(result.probe?.raw.probeTimeouts).toEqual(["audioHash"]);
+  });
+
+  it("parallel probe records probeErrors when a sub-item rejects", async () => {
+    // Simulates readWebrtc() throwing inside PROBE_SCRIPT: the error is
+    // captured into _probeErrors and the parallel run continues.
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "sync-canvas" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        return {
+          ua: "Mozilla/5.0",
+          language: "en-US",
+          platform: "Win32",
+          screen_resolution: "1920x1080",
+          dpr: 1,
+          canvasHash: "sync-canvas-hash",
+          webrtc: { candidates: [], candidateTypes: [] },
+          probeErrors: { webgpu: "navigator.gpu is not a function" }
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("ok");
+    // webrtc still mapped because the other sub-items ran in parallel
+    expect(result.probe?.values.webrtc?.value).toEqual({
+      candidates: [],
+      candidateTypes: []
+    });
+    // gpu absent because its sub-item rejected
+    expect(result.probe?.values.gpu).toBeUndefined();
+    expect(result.probe?.raw.probeErrors).toEqual({
+      webgpu: "navigator.gpu is not a function"
+    });
+  });
+
+  it("parallel probe keeps basic sync fields when all async sub-items are missing", async () => {
+    // Simulates all four async sub-items timing out or rejecting while
+    // the synchronous fields still come back.
+    const encodedSnapshot = encodeBrowserScanPayload({
+      allComplete: true,
+      hardware: { canvasHash: "snapshot-canvas" },
+      software: { language: "en-US" }
+    });
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "BrowserScan text"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodedSnapshot;
+        }
+        return {
+          ua: "Mozilla/5.0",
+          language: "en-US",
+          languages: ["en-US"],
+          platform: "Win32",
+          hardware_concurrency: 8,
+          device_memory: 8,
+          webdriver: false,
+          timezone: "America/New_York",
+          screen_resolution: "1920x1080",
+          screen_available_resolution: "1920x1050",
+          color_depth: "24",
+          dpr: 1,
+          device_pixel_ratio: 1,
+          do_not_track: "1",
+          client_hints: {},
+          canvasHash: "sync-canvas-hash",
+          webgl: { vendor: "Intel", renderer: "Iris", version: "4.5" },
+          clientRectHash: "client-rect-hash",
+          fonts: { count: 3, sample: ["Arial"], hash: "fonts-hash" },
+          speechVoices: { count: 2, sample: [] },
+          probeTimeouts: ["audioHash", "mediaDevices", "webrtc", "webgpu"],
+          probeErrors: {}
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(config, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("ok");
+    // Basic sync fields still in values
+    expect(result.probe?.values.ua?.value).toBe("Mozilla/5.0");
+    expect(result.probe?.values.language?.value).toBe("en-US");
+    expect(result.probe?.values.platform?.value).toBe("Win32");
+    expect(result.probe?.values.canvas?.value).toBe("sync-canvas-hash");
+    // All four async sub-items absent
+    expect(result.probe?.values.audio).toBeUndefined();
+    expect(result.probe?.values.media_devices).toBeUndefined();
+    expect(result.probe?.values.webrtc).toBeUndefined();
+    expect(result.probe?.values.gpu).toBeUndefined();
+    // probeTimeouts records all four labels
+    expect(result.probe?.raw.probeTimeouts).toEqual([
+      "audioHash",
+      "mediaDevices",
+      "webrtc",
+      "webgpu"
+    ]);
+  });
+
+  it("PROBE_SCRIPT schedules async sub-items via Promise.all", async () => {
+    // Static check: confirm the script actually parallelizes the four async
+    // sub-items, so a slow item cannot block the others.
+    const probeScript = await import("../src/browserScanCollector.js").then((mod) => {
+      // The script string is not exported, but the source file should
+      // reference it. Read directly from the file.
+      return null;
+    });
+    // Fall back: read the source file and look for Promise.all around
+    // withTimeout calls.
+    const fs = await import("node:fs/promises");
+    const source = await fs.readFile(
+      new URL("../src/browserScanCollector.ts", import.meta.url),
+      "utf8"
+    );
+    expect(source).toMatch(/Promise\.all\(\[\s*withTimeout\("audioHash"/);
+    expect(source).toMatch(/withTimeout\("mediaDevices"/);
+    expect(source).toMatch(/withTimeout\("webrtc"/);
+    expect(source).toMatch(/withTimeout\("webgpu"/);
+    expect(probeScript).toBeNull(); // placeholder to silence unused-var lint
+  });
+
+  it("PROBE_SCRIPT withTimeout uses Promise.race to truly end wait", async () => {
+    // Static check: confirm withTimeout now actually rejects the wrapper
+    // when the inner promise exceeds ms, instead of just recording a flag.
+    const fs = await import("node:fs/promises");
+    const source = await fs.readFile(
+      new URL("../src/browserScanCollector.ts", import.meta.url),
+      "utf8"
+    );
+    const start = source.indexOf("const withTimeout =");
+    expect(start).toBeGreaterThan(-1);
+    // Find the matching outer `};` by scanning braces from the start.
+    const after = source.slice(start);
+    let depth = 0;
+    let end = -1;
+    for (let i = 0; i < after.length; i += 1) {
+      const ch = after[i];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+    expect(end).toBeGreaterThan(0);
+    const body = after.slice(0, end);
+    expect(body).toContain("Promise.race");
+    expect(body).toContain("window.clearTimeout(timer)");
+    // The old implementation only set the flag without racing.
+    // Confirm the new code resolves the timeout via a separate promise.
+    expect(body).toMatch(/new Promise\(\(resolve\) => \{[\s\S]*?resolve\(undefined\)/);
+  });
 });

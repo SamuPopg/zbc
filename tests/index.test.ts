@@ -164,11 +164,25 @@ describe("formatProgress", () => {
       type: "scan_completed",
       current: 1,
       total: 4,
-      profileId: "PROFILE_A"
+      profileId: "PROFILE_A",
+      scanStatus: "ok"
     };
     expect(formatProgress(event)).toBe(
       "[1/4] PROFILE_A BrowserScan 采集完成"
     );
+  });
+
+  it("formats scan_completed with failed scanStatus as 'BrowserScan 采集未完成'", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "failed"
+    };
+    const out = formatProgress(event);
+    expect(out).toBe("[1/4] PROFILE_A BrowserScan 采集未完成");
+    expect(out).not.toContain("采集完成");
   });
 
   it("formats profile_done with status and field counts", () => {
@@ -198,6 +212,90 @@ describe("formatProgress", () => {
     };
     expect(formatProgress(event)).toBe(
       "[2/4] PROFILE_B 完成：partial，BS 字段 0 个，Probe 0 个"
+    );
+  });
+
+  it("appends durationMs to profile_started when present", () => {
+    const event: ProgressEvent = {
+      type: "profile_started",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      durationMs: 1234
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A AdsPower 环境启动成功（1234ms）"
+    );
+  });
+
+  it("appends durationMs to browser_connected for chromium when present", () => {
+    const event: ProgressEvent = {
+      type: "browser_connected",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      browserType: "chromium",
+      durationMs: 567
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A Chrome/CDP 已连接（567ms）"
+    );
+  });
+
+  it("appends durationMs to scan_completed when present", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "ok",
+      durationMs: 89
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A BrowserScan 采集完成（89ms）"
+    );
+  });
+
+  it("appends durationMs to scan_completed with failed scanStatus and shows '采集未完成'", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "failed",
+      durationMs: 60000
+    };
+    const out = formatProgress(event);
+    expect(out).toBe("[1/4] PROFILE_A BrowserScan 采集未完成（60000ms）");
+    expect(out).not.toContain("采集完成");
+  });
+
+  it("appends durationMs to profile_done when present", () => {
+    const event: ProgressEvent = {
+      type: "profile_done",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      status: "ok",
+      bsFieldCount: 31,
+      probeFieldCount: 20,
+      durationMs: 4000
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A 完成：ok，BS 字段 31 个，Probe 20 个（4000ms）"
+    );
+  });
+
+  it("does not append undefined duration marker when durationMs is missing", () => {
+    const event: ProgressEvent = {
+      type: "profile_started",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A"
+    };
+    expect(formatProgress(event)).not.toContain("undefined");
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A AdsPower 环境启动成功"
     );
   });
 });

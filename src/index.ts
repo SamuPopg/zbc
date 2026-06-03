@@ -36,6 +36,11 @@ function browserConnectedLabel(browserType: "firefox" | "chromium" | "unknown"):
   return "浏览器已连接";
 }
 
+function formatDuration(durationMs: number | undefined): string {
+  if (typeof durationMs !== "number") return "";
+  return `（${durationMs}ms）`;
+}
+
 export function formatProgress(event: ProgressEvent): string {
   const { current, total, profileId } = event;
   switch (event.type) {
@@ -44,17 +49,17 @@ export function formatProgress(event: ProgressEvent): string {
     case "profile_starting":
       return `[${current}/${total}] ${profileId} 启动 AdsPower 环境...`;
     case "profile_started":
-      return `[${current}/${total}] ${profileId} AdsPower 环境启动成功`;
+      return `[${current}/${total}] ${profileId} AdsPower 环境启动成功${formatDuration(event.durationMs)}`;
     case "browser_connecting":
       return `[${current}/${total}] ${profileId} ${browserLabel(event.browserType)}`;
     case "browser_connected":
-      return `[${current}/${total}] ${profileId} ${browserConnectedLabel(event.browserType)}`;
+      return `[${current}/${total}] ${profileId} ${browserConnectedLabel(event.browserType)}${formatDuration(event.durationMs)}`;
     case "browser_scanning":
       return `[${current}/${total}] ${profileId} 打开 BrowserScan 并采集...`;
     case "scan_completed":
-      return `[${current}/${total}] ${profileId} BrowserScan 采集完成`;
+      return `[${current}/${total}] ${profileId} ${event.scanStatus === "ok" ? "BrowserScan 采集完成" : "BrowserScan 采集未完成"}${formatDuration(event.durationMs)}`;
     case "profile_done":
-      return `[${current}/${total}] ${profileId} 完成：${event.status}，BS 字段 ${event.bsFieldCount} 个，Probe ${event.probeFieldCount} 个`;
+      return `[${current}/${total}] ${profileId} 完成：${event.status}，BS 字段 ${event.bsFieldCount} 个，Probe ${event.probeFieldCount} 个${formatDuration(event.durationMs)}`;
   }
 }
 

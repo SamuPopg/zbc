@@ -251,19 +251,26 @@ const PROBE_SCRIPT = String.raw`(async () => {
   };
 
   const withTimeout = (label, promise, ms) => {
-    const timer = window.setTimeout(() => {
-      window._probeTimeouts = window._probeTimeouts || {};
-      window._probeTimeouts[label] = true;
-    }, ms);
-    return promise.then((v) => {
-      window.clearTimeout(timer);
-      return v;
-    }).catch((e) => {
-      window.clearTimeout(timer);
-      window._probeErrors = window._probeErrors || {};
-      window._probeErrors[label] = String(e && e.message ? e.message : e);
-      return undefined;
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = window.setTimeout(() => {
+        window._probeTimeouts = window._probeTimeouts || {};
+        window._probeTimeouts[label] = true;
+        resolve(undefined);
+      }, ms);
     });
+    return Promise.race([
+      promise.then((v) => {
+        window.clearTimeout(timer);
+        return v;
+      }).catch((e) => {
+        window.clearTimeout(timer);
+        window._probeErrors = window._probeErrors || {};
+        window._probeErrors[label] = String(e && e.message ? e.message : e);
+        return undefined;
+      }),
+      timeoutPromise
+    ]);
   };
 
   const result = {
@@ -289,16 +296,15 @@ const PROBE_SCRIPT = String.raw`(async () => {
     speechVoices: readSpeechVoices()
   };
 
-  const audioHash = await withTimeout("audioHash", readAudioHash(), 4000);
+  const [audioHash, mediaDevices, webrtc, webgpu] = await Promise.all([
+    withTimeout("audioHash", readAudioHash(), 4000),
+    withTimeout("mediaDevices", readMediaDevices(), 5000),
+    withTimeout("webrtc", readWebrtc(), 5000),
+    withTimeout("webgpu", readWebGpu(), 5000)
+  ]);
   if (audioHash !== undefined) result.audioHash = audioHash;
-
-  const mediaDevices = await withTimeout("mediaDevices", readMediaDevices(), 5000);
   if (mediaDevices !== undefined) result.mediaDevices = mediaDevices;
-
-  const webrtc = await withTimeout("webrtc", readWebrtc(), 5000);
   if (webrtc !== undefined) result.webrtc = webrtc;
-
-  const webgpu = await withTimeout("webgpu", readWebGpu(), 5000);
   if (webgpu !== undefined) result.webgpu = webgpu;
 
   if (window._probeTimeouts || window._probeErrors) {

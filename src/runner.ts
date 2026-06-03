@@ -42,6 +42,7 @@ export type ProgressEvent =
       current: number;
       total: number;
       profileId: string;
+      durationMs?: number;
     }
   | {
       type: "browser_connecting";
@@ -56,6 +57,7 @@ export type ProgressEvent =
       total: number;
       profileId: string;
       browserType: BrowserType;
+      durationMs?: number;
     }
   | {
       type: "browser_scanning";
@@ -68,6 +70,8 @@ export type ProgressEvent =
       current: number;
       total: number;
       profileId: string;
+      scanStatus: BrowserScanResult["status"];
+      durationMs?: number;
     }
   | {
       type: "profile_done";
@@ -77,6 +81,7 @@ export type ProgressEvent =
       status: ProfileRunResult["status"];
       bsFieldCount: number;
       probeFieldCount: number;
+      durationMs?: number;
     };
 
 export type ProgressCallback = (event: ProgressEvent) => void;
@@ -277,6 +282,7 @@ async function collectSessionStabilityScans(
   try {
     let started;
     try {
+      const startMark = Date.now();
       onProgress?.({
         type: "profile_starting",
         current,
@@ -288,13 +294,15 @@ async function collectSessionStabilityScans(
         type: "profile_started",
         current,
         total,
-        profileId: settings.profileId
+        profileId: settings.profileId,
+        durationMs: Date.now() - startMark
       });
     } catch (startError) {
       notes.push(`启动环境失败：${errorMessage(startError)}`);
       return [];
     }
     try {
+      const connectMark = Date.now();
       onProgress?.({
         type: "browser_connecting",
         current,
@@ -308,7 +316,8 @@ async function collectSessionStabilityScans(
         current,
         total,
         profileId: settings.profileId,
-        browserType: detectBrowserType(settings)
+        browserType: detectBrowserType(settings),
+        durationMs: Date.now() - connectMark
       });
     } catch (connectError) {
       notes.push(`连接浏览器失败：${errorMessage(connectError)}`);
@@ -317,6 +326,7 @@ async function collectSessionStabilityScans(
 
     const scans: BrowserScanResult[] = [];
     for (let i = 0; i < config.stabilityRuns; i += 1) {
+      const scanMark = Date.now();
       onProgress?.({
         type: "browser_scanning",
         current,
@@ -328,7 +338,9 @@ async function collectSessionStabilityScans(
         type: "scan_completed",
         current,
         total,
-        profileId: settings.profileId
+        profileId: settings.profileId,
+        scanStatus: scan.status,
+        durationMs: Date.now() - scanMark
       });
       scans.push(scan);
     }
@@ -352,6 +364,7 @@ async function collectRestartStabilityScans(
   for (let i = 0; i < config.stabilityRuns; i += 1) {
     let automation: BrowserAutomation | undefined;
     try {
+      const startMark = Date.now();
       onProgress?.({
         type: "profile_starting",
         current,
@@ -363,8 +376,10 @@ async function collectRestartStabilityScans(
         type: "profile_started",
         current,
         total,
-        profileId: settings.profileId
+        profileId: settings.profileId,
+        durationMs: Date.now() - startMark
       });
+      const connectMark = Date.now();
       onProgress?.({
         type: "browser_connecting",
         current,
@@ -378,8 +393,10 @@ async function collectRestartStabilityScans(
         current,
         total,
         profileId: settings.profileId,
-        browserType: detectBrowserType(settings)
+        browserType: detectBrowserType(settings),
+        durationMs: Date.now() - connectMark
       });
+      const scanMark = Date.now();
       onProgress?.({
         type: "browser_scanning",
         current,
@@ -391,7 +408,9 @@ async function collectRestartStabilityScans(
         type: "scan_completed",
         current,
         total,
-        profileId: settings.profileId
+        profileId: settings.profileId,
+        scanStatus: scan.status,
+        durationMs: Date.now() - scanMark
       });
       scans.push(scan);
     } catch (error) {
@@ -416,6 +435,7 @@ async function runProfile(
   let browserScan: BrowserScanResult | undefined;
   let browserScans: BrowserScanResult[] = [];
   let status: ProfileRunResult["status"] = "failed";
+  const profileMark = Date.now();
 
   if (settings.fetchStatus === "failed") {
     notes.push(`设置值不可用：${settings.error ?? "unknown error"}`);
@@ -447,6 +467,17 @@ async function runProfile(
         );
 
     browserScan = browserScans[0];
+
+    if (
+      browserScan &&
+      browserScan.status !== "ok" &&
+      typeof browserScan.error === "string" &&
+      browserScan.error.length > 0 &&
+      !notes.some((n) => n.includes(browserScan!.error as string))
+    ) {
+      notes.push(`BrowserScan 采集失败：${browserScan.error}`);
+    }
+
     status = statusFor(settings, browserScan);
 
     validateFingerprintMismatch(settings, browserScan, notes);
@@ -479,7 +510,8 @@ async function runProfile(
     profileId: settings.profileId,
     status,
     bsFieldCount: Object.keys(browserScan?.values ?? {}).length,
-    probeFieldCount: Object.keys(browserScan?.probe?.values ?? {}).length
+    probeFieldCount: Object.keys(browserScan?.probe?.values ?? {}).length,
+    durationMs: Date.now() - profileMark
   });
 
   const result: ProfileRunResult = {

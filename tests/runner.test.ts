@@ -308,7 +308,8 @@ describe("runFingerprintCompare", () => {
     expect(profileResult.stability?.runs[1].browserScan.values.webgl?.value).toBe("hash-b");
 
     expect(profileResult.notes.join(" ")).toContain("冷启动复测有 1/2 轮未采集到 BrowserScan");
-    expect(profileResult.notes.join(" ")).not.toContain("ECONNREFUSED");
+    expect(profileResult.notes.join(" ")).toContain("BrowserScan 采集失败");
+    expect(profileResult.notes.join(" ")).toContain("ECONNREFUSED");
     expect(profileResult.notes.join(" ")).not.toContain("Profile is not open");
 
     expect(profileResult.browserScan?.status).toBe("failed");
@@ -621,7 +622,8 @@ describe("runFingerprintCompare", () => {
       type: "scan_completed",
       current: 1,
       total: 1,
-      profileId: "PROFILE_ID_1"
+      profileId: "PROFILE_ID_1",
+      scanStatus: "ok"
     });
 
     const done = events[7];
@@ -634,6 +636,117 @@ describe("runFingerprintCompare", () => {
       bsFieldCount: 3,
       probeFieldCount: 2
     });
+  });
+
+  it("includes durationMs on profile_started/browser_connected/scan_completed/profile_done events", async () => {
+    vi.mocked(detectBrowserType).mockReturnValue("firefox");
+
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {
+        ua: { value: "ua-x", source: "runtime" }
+      }
+    });
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(singleProfileConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const profileStarted = events.find((e) => e.type === "profile_started");
+    expect(profileStarted).toBeDefined();
+    if (profileStarted && profileStarted.type === "profile_started") {
+      expect(typeof profileStarted.durationMs).toBe("number");
+      expect(profileStarted.durationMs).toBeGreaterThanOrEqual(0);
+    }
+
+    const browserConnected = events.find((e) => e.type === "browser_connected");
+    expect(browserConnected).toBeDefined();
+    if (browserConnected && browserConnected.type === "browser_connected") {
+      expect(typeof browserConnected.durationMs).toBe("number");
+      expect(browserConnected.durationMs).toBeGreaterThanOrEqual(0);
+    }
+
+    const scanCompleted = events.find((e) => e.type === "scan_completed");
+    expect(scanCompleted).toBeDefined();
+    if (scanCompleted && scanCompleted.type === "scan_completed") {
+      expect(typeof scanCompleted.durationMs).toBe("number");
+      expect(scanCompleted.durationMs).toBeGreaterThanOrEqual(0);
+      expect(scanCompleted.scanStatus).toBe("ok");
+    }
+
+    const done = events.find((e) => e.type === "profile_done");
+    expect(done).toBeDefined();
+    if (done && done.type === "profile_done") {
+      expect(typeof done.durationMs).toBe("number");
+      expect(done.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("tracks per-run durations in restart stability mode", async () => {
+    vi.mocked(detectBrowserType).mockReturnValue("chromium");
+
+    const restartConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"],
+      stabilityRuns: 2,
+      stabilityMode: "restart"
+    };
+
+    collectBrowserScanMock.mockResolvedValue({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {
+        ua: { value: "ua-stable", source: "runtime" }
+      }
+    });
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(restartConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const starteds = events.filter((e) => e.type === "profile_started");
+    const connecteds = events.filter((e) => e.type === "browser_connected");
+    const scanCompleted = events.filter((e) => e.type === "scan_completed");
+    const dones = events.filter((e) => e.type === "profile_done");
+
+    expect(starteds).toHaveLength(2);
+    expect(connecteds).toHaveLength(2);
+    expect(scanCompleted).toHaveLength(2);
+    expect(dones).toHaveLength(1);
+
+    for (const event of starteds) {
+      if (event.type === "profile_started") {
+        expect(typeof event.durationMs).toBe("number");
+      }
+    }
+    for (const event of connecteds) {
+      if (event.type === "browser_connected") {
+        expect(typeof event.durationMs).toBe("number");
+      }
+    }
+    for (const event of scanCompleted) {
+      if (event.type === "scan_completed") {
+        expect(typeof event.durationMs).toBe("number");
+      }
+    }
+    const done = dones[0];
+    if (done && done.type === "profile_done") {
+      expect(typeof done.durationMs).toBe("number");
+    }
   });
 
   it("emits one settings_loaded event per profile with increasing current index", async () => {
@@ -667,6 +780,63 @@ describe("runFingerprintCompare", () => {
       bsFieldCount: 1,
       probeFieldCount: 0
     });
+  });
+
+  it("marks profile as partial and pushes BrowserScan error into notes when collectBrowserScan returns status=failed", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "failed",
+      error: "Navigation timed out after 60000 ms",
+      values: {},
+      rawText: ""
+    });
+
+    const events: ProgressEvent[] = [];
+    const result = await runFingerprintCompare(singleProfileConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const profileResult = result.report.results[0];
+    expect(profileResult.status).toBe("partial");
+    expect(profileResult.notes.join(" ")).toContain("BrowserScan 采集失败");
+    expect(profileResult.notes.join(" ")).toContain("Navigation timed out after 60000 ms");
+    expect(profileResult.browserScan?.status).toBe("failed");
+    expect(profileResult.browserScan?.error).toBe("Navigation timed out after 60000 ms");
+
+    const scanCompleted = events.find((e) => e.type === "scan_completed");
+    expect(scanCompleted).toBeDefined();
+    if (scanCompleted && scanCompleted.type === "scan_completed") {
+      expect(scanCompleted.scanStatus).toBe("failed");
+      expect(typeof scanCompleted.durationMs).toBe("number");
+    }
+  });
+
+  it("does not duplicate the BrowserScan error note when the same error is already present", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "failed",
+      error: "Navigation timed out after 60000 ms",
+      values: {},
+      rawText: ""
+    });
+
+    const result = await runFingerprintCompare(singleProfileConfig);
+
+    const profileResult = result.report.results[0];
+    const matches = profileResult.notes.filter((n) => n.includes("BrowserScan 采集失败"));
+    expect(matches).toHaveLength(1);
   });
 
   it("emits profile_done with status failed and zero field counts when startProfile throws", async () => {
