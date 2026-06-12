@@ -132,6 +132,10 @@ flowchart TB
 
 报告顶部有 7 个摘要 tile，从左到右依次是：Profile 数、Fingerprint 项目数、OK、Partial、Error、需人工判断、未获取 BS 值。每个 profile 的列头上还会带一个状态 badge（OK / Partial / Error）。这些是帮助一眼看清采集完整度的速览，详情看下面四类数据维度和 runbook 里的解读说明。
 
+### 控制台进度
+
+`npm run start` 跑批时控制台会按 profile 顺序输出阶段进度，关键阶段（启动环境、连接浏览器、BrowserScan 采集、profile 完成）会附带耗时，例如 `[1/3] p-xxx BrowserScan 采集未完成（8421ms）`。BrowserScan 失败时控制台会显示 `BrowserScan 采集未完成`，而不是误导为"采集完成"；具体原因看 JSON 报告的 `results[].browserScan.error` 以及对应 profile 的 `notes`（失败时会被追加一条 `BrowserScan 采集失败：<error>`）。
+
 ## 常用命令
 
 | 场景 | 命令 |

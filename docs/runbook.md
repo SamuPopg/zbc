@@ -104,6 +104,17 @@ sequenceDiagram
 7. 用设置值和 Probe 值生成 `browserScan.probe.checks`。
 8. 生成 HTML/JSON 报告（`stabilityRuns > 1` 时还会跑多轮并生成 `stability` 块）。
 
+### 控制台进度日志
+
+跑批过程中控制台会按 profile 顺序输出阶段进度，关键阶段会在文案末尾附带耗时，便于判断卡点：
+
+- `AdsPower 环境启动成功（Xms）`：环境启动耗时。
+- `浏览器已连接（Xms）`：连接 CDP/Marionette 耗时。
+- `BrowserScan 采集完成（Xms）` 或 `BrowserScan 采集未完成（Xms）`：采集阶段耗时，状态来自 `browserScan.status`。
+- `完成：ok，BS 字段 N 个，Probe M 个（Xms）`：profile 总耗时。
+
+BrowserScan 失败时控制台显示 `采集未完成`，且对应 profile 的 `notes` 会追加一条 `BrowserScan 采集失败：<error>`（错误文案与 `browserScan.error` 一致），方便在 JSON 报告里直接定位失败环节。
+
 ## 浏览器连接链路
 
 ### Chrome / Chromium
@@ -116,6 +127,8 @@ sequenceDiagram
 4. 后续读 `window._getComponent()`、执行 Probe JS 都走 CDP 通道。
 
 如果 Local API 返回的 `debug_port` 端口被防火墙拦了，会报"CDP 连接失败"。
+
+> fail-fast：如果 Local API 启动响应里既没有 `ws.puppeteer` 也没有 `debug_port`，工具会直接抛错 `profile <id> has no wsPuppeteer and no debugPort; cannot connect over CDP`，不再进入重试循环。常见原因是 AdsPower 客户端版本不兼容、profile 不是 Chrome/Chromium 内核，或启动响应里字段名差异。
 
 ### Firefox
 
@@ -196,6 +209,10 @@ flowchart LR
 - **UA、timezone、language、screen、dpr、hardware_concurrency、device_memory、do_not_track、webgl_config**：可对等比较，备注会是 `设置值与 Probe一致` 或 `需人工判断`。
 - **canvas、webgl、webgl_image、audio、client_rects、fonts、media_devices、webrtc**：设置值是开关/模式，Probe 是 hash 或列表，不能强判定。备注统一为 `需人工判断`。
 - **tls、ip、ip_country、ip_region、ip_city**：服务端/网络视角，JS Probe 验不了，备注为 `无法通过 JS 校验`。
+
+### Probe 异步子项的并行采集
+
+`audioHash`、`mediaDevices`、`webrtc`、`webgpu` 这四个异步子项在 BrowserScan 页面里通过 `Promise.all` 并行采集，每个子项都有独立的真实超时（`audioHash` 4s、其余 5s）。任一子项超时或报错只会在 `_probeTimeouts` / `_probeErrors` 里记一条，不会阻塞其他子项返回值，因此一组 Probe 不会因为单个慢检测项而整体退化到只有 `probe.error`。这些子项是 `canvas / audio / webgl_image / client_rects / fonts / media_devices / webrtc` 等"需人工判断"字段的主要来源，单独看缺失是正常现象。
 
 详细分析见 [§ 为什么只改代理或 WebGL 后部分 BS 值会变化](#为什么只改代理或-webgl-后部分-bs-值会变化)。
 
@@ -393,6 +410,16 @@ client_secret, access_key, private_key, user_proxy_config
 - 检查 `browserScanUrl` 是不是首页。
 - 看 `browserScan.componentSnapshot` 是否有内容。
 - 看 `browserScan.error` 定位采集失败的环节。
+
+### 7. Chrome/CDP 启动响应缺 `ws.puppeteer` 或 `debug_port`
+
+现象：profile 跑批时立刻报 `profile <id> has no wsPuppeteer and no debugPort; cannot connect over CDP`，伴随 `browserScan.error` 同义文案、`notes` 中追加 `BrowserScan 采集失败：...`，控制台进度为 `BrowserScan 采集未完成`。
+原因：Local API 启动响应里既没有 `ws.puppeteer` 也没有 `debug_port`，工具直接 fail-fast 而不再重试。
+处理：
+
+- 确认 AdsPower 客户端是较新版本，且该 profile 是 Chrome/Chromium 内核（Firefox 内核不会返回这两字段，属正常情况）。
+- 重新启动该 profile 一次再采集；偶发于 AdsPower Local API 缓存或内核尚未完全就绪。
+- 仍无法获取时，回到 AdsPower 客户端手动启动 profile，确认能正常打开浏览器，再回到本工具采集。
 
 ## 安全与脱敏说明
 

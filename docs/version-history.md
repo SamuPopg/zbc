@@ -10,6 +10,35 @@
 - 本文档不替代 README、runbook、superpowers 计划文档，只补充“这次改动做了什么、为什么、影响谁”。
 - 报告功能不引入通过/失败判定；保持中性描述。
 
+## 2026-06-03 - BrowserScan 采集耗时与失败反馈优化
+
+### 更新内容
+
+- CLI 进度输出在关键阶段（启动环境、连接浏览器、BrowserScan 采集、profile 完成）追加耗时，例如 `AdsPower 环境启动成功（Xms）`、`BrowserScan 采集完成（Xms）` / `BrowserScan 采集未完成（Xms）`、`完成：ok，BS 字段 N 个，Probe M 个（Xms）`，便于在跑批时直观判断卡点。
+- `scan_completed` 文案区分 ok / 失败：失败时显示 `BrowserScan 采集未完成`，不再被误读为"采集完成"。
+- profile notes 在 `browserScan.status !== "ok"` 且 `error` 非空时追加 `BrowserScan 采集失败：<error>`，与 `results[].browserScan.error` 同义，便于在 JSON 报告里直接定位失败原因。
+- Chrome/CDP 连接时如果 Local API 启动响应同时缺少 `wsPuppeteer` 和 `debugPort`，工具立即抛错 `profile <id> has no wsPuppeteer and no debugPort; cannot connect over CDP`，不再进入无意义的连接重试。
+- Probe 中 `audioHash`、`mediaDevices`、`webrtc`、`webgpu` 四个异步子项改为 `Promise.all` 并行采集，每个子项保留独立真实超时（`audioHash` 4s，其余 5s）；单项超时或报错仅写入 `_probeTimeouts` / `_probeErrors`，不阻塞其他子项返回值，避免一组 Probe 因单个慢检测项整体退化。
+
+### 影响范围
+
+- CLI：所有 `npm.cmd run start` 跑批输出。
+- 报告：JSON 报告 `results[].browserScan.status !== "ok"` 时，对应 `results[].notes` 追加 `BrowserScan 采集失败：...`；HTML 报告展示层未变。
+- 内部模块：`src/index.ts`（`formatProgress` 与新增 `formatDuration`、`scanStatus` 判定）、`src/runner.ts`（`ProgressEvent` 增加 `durationMs` / `scanStatus`、profile notes 失败原因）、`src/browserSession.ts`（Chrome/CDP 缺端点 fail-fast）、`src/browserScanCollector.ts`（Probe 异步子项并行 + 独立超时）。
+- 测试：`tests/index.test.ts`、`tests/browserSession.test.ts`、`tests/browserScanCollector.test.ts`、`tests/runner.test.ts` 同步新增/调整断言。
+- 配置：无需修改 `config.local.json`。
+
+### 验证结果
+
+- 旧 commit：`a8ecd0b Improve BrowserScan scan timing and failure feedback`。
+
+### 注意事项
+
+- 控制台耗时仅供人工直观判断阶段耗时，**不**进入 JSON 报告字段，不影响 `browserScan.status` / `stability` 块等既有结论。
+- `BrowserScan 采集失败：<error>` note 只在第一轮 BrowserScan 失败且 `error` 非空时追加，避免在 `stability` 多轮里重复堆栈；具体原因仍以 `results[].browserScan.error` 为准。
+- Chrome/CDP fail-fast 只针对"同时缺 `wsPuppeteer` 与 `debugPort`"的情况；只要其中之一存在就走原有重试链路，因此行为变化只发生在"两个端点都缺失"这一类配置/版本异常场景。
+- Probe 并行改造不引入新的字段，HTML 报告呈现与之前一致；只是慢检测项不再阻塞整组 Probe，整组 Probe 全空或只剩 `probe.error` 的情况应明显减少。
+
 ## 2026-06-02 - HTML 报告 UI 改版
 
 ### 更新内容
