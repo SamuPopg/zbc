@@ -3,9 +3,11 @@ import type { BrowserAutomation, BrowserAutomationPage } from "./browserAutomati
 
 export class PlaywrightAutomationPage implements BrowserAutomationPage {
   private page: Page;
+  private closeOnClose: boolean;
 
-  constructor(page: Page) {
+  constructor(page: Page, closeOnClose = true) {
     this.page = page;
+    this.closeOnClose = closeOnClose;
   }
 
   async goto(url: string, timeout?: number): Promise<void> {
@@ -40,6 +42,9 @@ export class PlaywrightAutomationPage implements BrowserAutomationPage {
   }
 
   async close(): Promise<void> {
+    if (!this.closeOnClose) {
+      return;
+    }
     await this.page.close().catch(() => undefined);
   }
 }
@@ -53,6 +58,10 @@ export class PlaywrightAutomation implements BrowserAutomation {
 
   async newPage(): Promise<BrowserAutomationPage> {
     const context = this.browser.contexts()[0] || (await this.browser.newContext());
+    const existingPage = context.pages()[0];
+    if (existingPage) {
+      return new PlaywrightAutomationPage(existingPage, false);
+    }
     const page = await context.newPage();
     return new PlaywrightAutomationPage(page);
   }

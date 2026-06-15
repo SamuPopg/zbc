@@ -43,7 +43,8 @@ export interface ToolConfig {
 }
 
 export interface RawProfile {
-  id: string;
+  id?: string;
+  profile_id?: string;
   acc_id?: string;
   name?: string;
   fingerprint_config?: Record<string, unknown>;

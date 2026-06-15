@@ -157,4 +157,55 @@ describe("fetchProfileSettings", () => {
       })
     });
   });
+
+  it("matches Local API profile list entries by profile_id when id is missing", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            list: [
+              {
+                profile_id: "PROFILE_ID_1",
+                name: "Local profile",
+                fingerprint_config: {
+                  ua: "Mozilla/5.0 Local"
+                },
+                switch_random_finger: "0"
+              }
+            ]
+          }
+        })
+      } as Response);
+
+    const result = await fetchProfileSettings(
+      {
+        backendBaseUrl: "https://api.example.test",
+        localApiBaseUrl: "http://local.adspower.com:50325",
+        apiKey: "secret-key",
+        browserScanUrl: "https://www.browserscan.net/",
+        profileIds: ["PROFILE_ID_1"],
+        closeAfterRun: true,
+        runMode: "sequential",
+        timeoutMs: 60000,
+        outputDir: "reports",
+        stabilityRuns: 1,
+        stabilityMode: "session"
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    expect(result[0]).toMatchObject({
+      profileId: "PROFILE_ID_1",
+      name: "Local profile",
+      fetchStatus: "ok"
+    });
+    expect(result[0].settings.ua).toBe("Mozilla/5.0 Local");
+  });
 });

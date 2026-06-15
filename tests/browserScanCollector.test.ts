@@ -602,4 +602,149 @@ describe("collectBrowserScan", () => {
     // Confirm the new code resolves the timeout via a separate promise.
     expect(body).toMatch(/new Promise\(\(resolve\) => \{[\s\S]*?resolve\(undefined\)/);
   });
+
+  it("returns status=failed with newPage stage timeout when newPage never resolves", async () => {
+    const shortTimeoutConfig: ToolConfig = {
+      ...config,
+      timeoutMs: 200
+    };
+    const automation: BrowserAutomation = {
+      newPage: vi.fn(
+        () =>
+          new Promise<BrowserAutomationPage>(() => {
+            /* never settles */
+          })
+      ),
+      close: vi.fn(async () => undefined)
+    };
+
+    const result = await collectBrowserScan(shortTimeoutConfig, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBeDefined();
+    expect(result.error).toMatch(/timed out/i);
+    expect(result.error).toMatch(/newPage/);
+    expect(result.values).toEqual({});
+    expect(automation.close).not.toHaveBeenCalled();
+  });
+
+  it("returns status=failed with probe stage timeout when probe evaluate never resolves", async () => {
+    const shortTimeoutConfig: ToolConfig = {
+      ...config,
+      timeoutMs: 200
+    };
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "ok"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return encodeBrowserScanPayload({
+            allComplete: true,
+            hardware: { canvasHash: "snapshot-canvas" },
+            software: { language: "en-US" }
+          });
+        }
+        return new Promise(() => {
+          /* never settles */
+        });
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(shortTimeoutConfig, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBeDefined();
+    expect(result.error).toMatch(/timed out/i);
+    expect(result.error).toMatch(/probe/);
+    expect(result.error).toMatch(/ms$/);
+    expect(result.values).toEqual({});
+  });
+
+  it("returns status=failed with componentSnapshot stage timeout when component snapshot evaluate hangs", async () => {
+    const shortTimeoutConfig: ToolConfig = {
+      ...config,
+      timeoutMs: 200
+    };
+    const collectionPage = {
+      goto: vi.fn(async () => undefined),
+      waitForNetworkIdleOrDelay: vi.fn(async () => undefined),
+      waitForTimeout: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      bodyText: vi.fn(async () => "ok"),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes("_getComponent")) {
+          return new Promise(() => {
+            /* never settles */
+          });
+        }
+        return {
+          ua: "ua",
+          language: "en-US",
+          platform: "Win32",
+          screen_resolution: "1x1",
+          dpr: 1
+        };
+      }),
+      close: vi.fn(async () => undefined)
+    };
+
+    const automation = mockAutomation(collectionPage);
+    const result = await collectBrowserScan(shortTimeoutConfig, "PROFILE_ID_1", automation);
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBeDefined();
+    expect(result.error).toMatch(/timed out/i);
+    expect(result.error).toMatch(/componentSnapshot/);
+  });
+
+  it(
+    "does not falsely time out when waitForNetworkIdleOrDelay takes longer than the adapter's fixed 3s sleep under default timeoutMs",
+    { timeout: 15000 },
+    async () => {
+      const normalConfig: ToolConfig = {
+        ...config,
+        timeoutMs: 60000
+      };
+      const collectionPage = {
+        goto: vi.fn(async () => undefined),
+        // Simulate the playwright adapter's normal path: ~3s fixed sleep plus
+        // some headroom, but still well under the per-stage cap.
+        waitForNetworkIdleOrDelay: vi.fn(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 3500));
+        }),
+        waitForTimeout: vi.fn(async () => undefined),
+        wait: vi.fn(async () => undefined),
+        bodyText: vi.fn(async () => "ok"),
+        evaluate: vi.fn(async (fn: unknown) => {
+          if (String(fn).includes("_getComponent")) {
+            return encodeBrowserScanPayload({
+              allComplete: true,
+              hardware: { canvasHash: "snapshot-canvas" },
+              software: { language: "en-US" }
+            });
+          }
+          return {
+            ua: "ua",
+            language: "en-US",
+            platform: "Win32",
+            screen_resolution: "1x1",
+            dpr: 1
+          };
+        }),
+        close: vi.fn(async () => undefined)
+      };
+
+      const automation = mockAutomation(collectionPage);
+      const result = await collectBrowserScan(normalConfig, "PROFILE_ID_1", automation);
+
+      expect(result.status).toBe("ok");
+      expect(result.error).toBeUndefined();
+      expect(result.values.canvas?.value).toBe("snapshot-canvas");
+    }
+  );
 });

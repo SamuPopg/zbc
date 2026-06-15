@@ -71,6 +71,7 @@ export type ProgressEvent =
       total: number;
       profileId: string;
       scanStatus: BrowserScanResult["status"];
+      scanError?: string;
       durationMs?: number;
     }
   | {
@@ -340,6 +341,10 @@ async function collectSessionStabilityScans(
         total,
         profileId: settings.profileId,
         scanStatus: scan.status,
+        scanError:
+          scan.status === "failed" && typeof scan.error === "string"
+            ? scan.error
+            : undefined,
         durationMs: Date.now() - scanMark
       });
       scans.push(scan);
@@ -410,6 +415,10 @@ async function collectRestartStabilityScans(
         total,
         profileId: settings.profileId,
         scanStatus: scan.status,
+        scanError:
+          scan.status === "failed" && typeof scan.error === "string"
+            ? scan.error
+            : undefined,
         durationMs: Date.now() - scanMark
       });
       scans.push(scan);

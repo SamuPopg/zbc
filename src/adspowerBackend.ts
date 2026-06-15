@@ -23,8 +23,26 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function profileIdFor(profile: RawProfile): string | undefined {
+  if (typeof profile.id === "string" && profile.id.length > 0) {
+    return profile.id;
+  }
+
+  if (typeof profile.profile_id === "string" && profile.profile_id.length > 0) {
+    return profile.profile_id;
+  }
+
+  return undefined;
+}
+
 function orderedSettings(config: ToolConfig, list: RawProfile[]): ProfileSettings[] {
-  const byId = new Map(list.map((profile) => [profile.id, flattenProfile(profile)]));
+  const byId = new Map<string, ProfileSettings>();
+  for (const profile of list) {
+    const profileId = profileIdFor(profile);
+    if (profileId) {
+      byId.set(profileId, flattenProfile(profile));
+    }
+  }
 
   return config.profileIds.map((profileId) => {
     const found = byId.get(profileId);
@@ -56,7 +74,7 @@ export function flattenProfile(profile: RawProfile): ProfileSettings {
   delete settings.fingerprint_config;
 
   return {
-    profileId: profile.id,
+    profileId: profileIdFor(profile) ?? "",
     accId: typeof profile.acc_id === "string" ? profile.acc_id : undefined,
     name: typeof profile.name === "string" ? profile.name : undefined,
     settings,

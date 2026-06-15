@@ -56,8 +56,14 @@ export function formatProgress(event: ProgressEvent): string {
       return `[${current}/${total}] ${profileId} ${browserConnectedLabel(event.browserType)}${formatDuration(event.durationMs)}`;
     case "browser_scanning":
       return `[${current}/${total}] ${profileId} 打开 BrowserScan 并采集...`;
-    case "scan_completed":
-      return `[${current}/${total}] ${profileId} ${event.scanStatus === "ok" ? "BrowserScan 采集完成" : "BrowserScan 采集未完成"}${formatDuration(event.durationMs)}`;
+    case "scan_completed": {
+      const base = event.scanStatus === "ok" ? "BrowserScan 采集完成" : "BrowserScan 采集未完成";
+      const errorSuffix =
+        event.scanStatus === "failed" && typeof event.scanError === "string" && event.scanError.length > 0
+          ? `：${event.scanError}`
+          : "";
+      return `[${current}/${total}] ${profileId} ${base}${errorSuffix}${formatDuration(event.durationMs)}`;
+    }
     case "profile_done":
       return `[${current}/${total}] ${profileId} 完成：${event.status}，BS 字段 ${event.bsFieldCount} 个，Probe ${event.probeFieldCount} 个${formatDuration(event.durationMs)}`;
   }

@@ -706,12 +706,74 @@ async function collectVisibleText(page: BrowserAutomationPage): Promise<string> 
   return page.bodyText(10000);
 }
 
+export class BrowserScanStageTimeoutError extends Error {
+  readonly stage: string;
+  readonly timeoutMs: number;
+
+  constructor(stage: string, timeoutMs: number) {
+    super(`BrowserScan stage="${stage}" timed out after ${timeoutMs}ms`);
+    this.name = "BrowserScanStageTimeoutError";
+    this.stage = stage;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+function withHardTimeout<T>(
+  stage: string,
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new BrowserScanStageTimeoutError(stage, timeoutMs));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  });
+}
+
 export async function collectBrowserScan(
   config: ToolConfig,
   profileId: string,
   automation: BrowserAutomation
 ): Promise<BrowserScanResult> {
   let page: BrowserAutomationPage | undefined;
+  const baseTimeoutMs = config.timeoutMs > 0 ? config.timeoutMs : 60000;
+  // Absolute per-stage upper bounds. The actual budget for each stage is
+  // min(perStageCap, remainingOverallTime), so the overall cap is enforced
+  // even when a single stage stays below its cap, and a hung stage surfaces
+  // its specific stage name (because the cap is reached before the deadline).
+  // waitForNetworkIdle / waitCapMs: Playwright adapter normal path is up to
+  // 15000ms waitForLoadState + 3000ms sleep; Selenium is up to 5000ms wait +
+  // 3000ms sleep. 20000ms covers both without false-positive timeouts.
+  const newPageCapMs = 15000;
+  const navigationCapMs = baseTimeoutMs;
+  const waitCapMs = 20000;
+  const bodyTextCapMs = 15000;
+  const componentCapMs = 30000;
+  const probeCapMs = 30000;
+
+  const collectionStart = Date.now();
+  const overallDeadline = collectionStart + baseTimeoutMs;
+
+  function remainingMs(): number {
+    return Math.max(0, overallDeadline - Date.now());
+  }
+
+  function stageBudget(perStageCapMs: number): number {
+    const remaining = remainingMs();
+    if (remaining <= 0) {
+      throw new BrowserScanStageTimeoutError("overall", baseTimeoutMs);
+    }
+    return Math.min(perStageCapMs, remaining);
+  }
 
   async function navigateWithRetry(url: string, maxRetries: number): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
@@ -726,17 +788,34 @@ export async function collectBrowserScan(
     }
   }
 
-  try {
-    page = await automation.newPage();
-
-    await navigateWithRetry(config.browserScanUrl, 2);
-    await page.waitForNetworkIdleOrDelay();
-
-    const rawText = await collectVisibleText(page);
+  async function runCollection(): Promise<BrowserScanResult> {
+    await withHardTimeout(
+      "navigation",
+      navigateWithRetry(config.browserScanUrl, 2),
+      stageBudget(navigationCapMs)
+    );
+    await withHardTimeout(
+      "waitForNetworkIdle",
+      page!.waitForNetworkIdleOrDelay(),
+      stageBudget(waitCapMs)
+    );
+    const rawText = await withHardTimeout(
+      "bodyText",
+      collectVisibleText(page!),
+      stageBudget(bodyTextCapMs)
+    );
     const truncatedText = rawText.slice(0, 20000);
-    const componentSnapshot = await collectComponentSnapshot(page);
-    const probe = await collectProbeSafely(page);
-    const values = {
+    const componentSnapshot = await withHardTimeout(
+      "componentSnapshot",
+      collectComponentSnapshot(page!),
+      stageBudget(componentCapMs)
+    );
+    const probe = await withHardTimeout(
+      "probe",
+      collectProbeSafely(page!),
+      stageBudget(probeCapMs)
+    );
+    const values: Record<string, BrowserScanValue> = {
       ...mapBrowserScanSnapshotValues(componentSnapshot)
     };
 
@@ -754,6 +833,15 @@ export async function collectBrowserScan(
       rawText: truncatedText,
       status: "ok"
     };
+  }
+
+  try {
+    page = await withHardTimeout(
+      "newPage",
+      automation.newPage(),
+      stageBudget(newPageCapMs)
+    );
+    return await runCollection();
   } catch (error) {
     return {
       profileId,

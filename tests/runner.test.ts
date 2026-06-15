@@ -814,7 +814,36 @@ describe("runFingerprintCompare", () => {
     expect(scanCompleted).toBeDefined();
     if (scanCompleted && scanCompleted.type === "scan_completed") {
       expect(scanCompleted.scanStatus).toBe("failed");
+      expect(scanCompleted.scanError).toBe("Navigation timed out after 60000 ms");
       expect(typeof scanCompleted.durationMs).toBe("number");
+    }
+  });
+
+  it("omits scanError on scan_completed when status is ok", async () => {
+    const singleProfileConfig: ToolConfig = {
+      ...config,
+      profileIds: ["PROFILE_ID_1"]
+    };
+
+    collectBrowserScanMock.mockResolvedValueOnce({
+      profileId: "PROFILE_ID_1",
+      status: "ok",
+      rawText: "",
+      values: {}
+    });
+
+    const events: ProgressEvent[] = [];
+    await runFingerprintCompare(singleProfileConfig, {
+      onProgress: (event) => {
+        events.push(event);
+      }
+    });
+
+    const scanCompleted = events.find((e) => e.type === "scan_completed");
+    expect(scanCompleted).toBeDefined();
+    if (scanCompleted && scanCompleted.type === "scan_completed") {
+      expect(scanCompleted.scanStatus).toBe("ok");
+      expect(scanCompleted.scanError).toBeUndefined();
     }
   });
 

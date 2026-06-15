@@ -270,6 +270,64 @@ describe("formatProgress", () => {
     expect(out).not.toContain("采集完成");
   });
 
+  it("appends scanError to scan_completed with failed scanStatus", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "failed",
+      scanError: 'BrowserScan stage="probe" timed out after 60000ms'
+    };
+    const out = formatProgress(event);
+    expect(out).toBe(
+      '[1/4] PROFILE_A BrowserScan 采集未完成：BrowserScan stage="probe" timed out after 60000ms'
+    );
+  });
+
+  it("appends scanError and durationMs to scan_completed with failed scanStatus", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "failed",
+      scanError: "Navigation timed out after 60000 ms",
+      durationMs: 60000
+    };
+    const out = formatProgress(event);
+    expect(out).toBe(
+      "[1/4] PROFILE_A BrowserScan 采集未完成：Navigation timed out after 60000 ms（60000ms）"
+    );
+  });
+
+  it("does not append scanError when scanStatus is ok", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "ok",
+      scanError: "should be ignored"
+    };
+    const out = formatProgress(event);
+    expect(out).toBe("[1/4] PROFILE_A BrowserScan 采集完成");
+    expect(out).not.toContain("should be ignored");
+  });
+
+  it("does not append scanError on failed scan when scanError is missing or empty", () => {
+    const event: ProgressEvent = {
+      type: "scan_completed",
+      current: 1,
+      total: 4,
+      profileId: "PROFILE_A",
+      scanStatus: "failed"
+    };
+    expect(formatProgress(event)).toBe(
+      "[1/4] PROFILE_A BrowserScan 采集未完成"
+    );
+  });
+
   it("appends durationMs to profile_done when present", () => {
     const event: ProgressEvent = {
       type: "profile_done",
