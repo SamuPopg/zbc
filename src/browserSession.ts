@@ -1,4 +1,5 @@
 import { chromium, type Browser } from "playwright";
+import { connectNativeCdp } from "./nativeCdpAdapter.js";
 import { connectSelenium } from "./seleniumAdapter.js";
 import type { LocalApiStartResponse, ProfileSettings } from "./types.js";
 import type { BrowserAutomation } from "./browserAutomation.js";
@@ -12,10 +13,15 @@ function errorMessage(error: unknown): string {
 export interface BrowserConnectOptions {
   maxAttempts?: number;
   retryDelayMs?: number;
+  connectTimeoutMs?: number;
+  overallTimeoutMs?: number;
+  nativeCdpFallback?: boolean;
 }
 
 const DEFAULT_CONNECT_MAX_ATTEMPTS = 30;
 const DEFAULT_CONNECT_RETRY_DELAY_MS = 1000;
+const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
+const DEFAULT_CONNECT_OVERALL_TIMEOUT_MS = 30000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,22 +58,44 @@ export async function connectToStartedBrowser(
 
   const maxAttempts = options.maxAttempts ?? DEFAULT_CONNECT_MAX_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_CONNECT_RETRY_DELAY_MS;
+  const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_CONNECT_OVERALL_TIMEOUT_MS;
+  const deadline = Date.now() + overallTimeoutMs;
 
   let lastWsError: unknown;
   let lastDebugPortError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const remainingBeforeAttempt = deadline - Date.now();
+    if (remainingBeforeAttempt <= 0) {
+      break;
+    }
+    const attemptTimeoutMs = Math.max(1, Math.min(connectTimeoutMs, remainingBeforeAttempt));
+
     if (started.wsPuppeteer) {
       try {
-        return await chromium.connectOverCDP(started.wsPuppeteer);
+        return await chromium.connectOverCDP(started.wsPuppeteer, {
+          timeout: attemptTimeoutMs
+        });
       } catch (error) {
         lastWsError = error;
       }
     }
 
+    const remainingBeforeDebugFallback = deadline - Date.now();
+    if (remainingBeforeDebugFallback <= 0) {
+      break;
+    }
+    const debugFallbackTimeoutMs = Math.max(
+      1,
+      Math.min(connectTimeoutMs, remainingBeforeDebugFallback)
+    );
+
     if (started.debugPort) {
       try {
-        return await chromium.connectOverCDP(`http://127.0.0.1:${started.debugPort}`);
+        return await chromium.connectOverCDP(`http://127.0.0.1:${started.debugPort}`, {
+          timeout: debugFallbackTimeoutMs
+        });
       } catch (error) {
         lastDebugPortError = error;
       }
@@ -89,7 +117,7 @@ export async function connectToStartedBrowser(
     : "no debugPort fallback";
 
   throw new Error(
-    `profile ${started.profileId} failed to connect after ${maxAttempts} attempt(s) with ${wsPart}; ${debugPart}`
+    `profile ${started.profileId} failed to connect after ${maxAttempts} attempt(s) or ${overallTimeoutMs}ms with ${wsPart}; ${debugPart}`
   );
 }
 
@@ -104,7 +132,24 @@ export async function connectAutomation(
     return connectSelenium(started);
   }
 
-  const browser = await connectToStartedBrowser(started, options);
-  const { PlaywrightAutomation } = await import("./playwrightAdapter.js");
-  return new PlaywrightAutomation(browser);
+  try {
+    const browser = await connectToStartedBrowser(started, options);
+    const { PlaywrightAutomation } = await import("./playwrightAdapter.js");
+    return new PlaywrightAutomation(browser);
+  } catch (playwrightError) {
+    if (options.nativeCdpFallback === false) {
+      throw playwrightError;
+    }
+    try {
+      return await connectNativeCdp(started, {
+        connectTimeoutMs: options.connectTimeoutMs,
+        commandTimeoutMs: options.connectTimeoutMs
+      });
+    } catch (nativeError) {
+      throw new Error(
+        `profile ${started.profileId} failed to connect with Playwright CDP and native CDP fallback; ` +
+        `playwright: ${errorMessage(playwrightError)}; native: ${errorMessage(nativeError)}`
+      );
+    }
+  }
 }

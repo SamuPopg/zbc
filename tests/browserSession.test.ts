@@ -10,6 +10,10 @@ const { connectSeleniumMock } = vi.hoisted(() => ({
   connectSeleniumMock: vi.fn()
 }));
 
+const { connectNativeCdpMock } = vi.hoisted(() => ({
+  connectNativeCdpMock: vi.fn()
+}));
+
 vi.mock("playwright", () => ({
   chromium: {
     connectOverCDP
@@ -18,6 +22,10 @@ vi.mock("playwright", () => ({
 
 vi.mock("../src/seleniumAdapter.js", () => ({
   connectSelenium: (...args: unknown[]) => connectSeleniumMock(...args)
+}));
+
+vi.mock("../src/nativeCdpAdapter.js", () => ({
+  connectNativeCdp: (...args: unknown[]) => connectNativeCdpMock(...args)
 }));
 
 function settings(browser: string, kernelType?: string): ProfileSettings {
@@ -57,9 +65,12 @@ describe("connectToStartedBrowser", () => {
     expect(connectOverCDP).toHaveBeenCalledTimes(2);
     expect(connectOverCDP).toHaveBeenNthCalledWith(
       1,
-      "ws://127.0.0.1:53210/devtools/browser/abc"
+      "ws://127.0.0.1:53210/devtools/browser/abc",
+      { timeout: 8000 }
     );
-    expect(connectOverCDP).toHaveBeenNthCalledWith(2, "http://127.0.0.1:53210");
+    expect(connectOverCDP).toHaveBeenNthCalledWith(2, "http://127.0.0.1:53210", {
+      timeout: 8000
+    });
   });
 
   it("includes profileId and ws error when all connection attempts fail", async () => {
@@ -102,14 +113,20 @@ describe("connectToStartedBrowser", () => {
     expect(connectOverCDP).toHaveBeenCalledTimes(4);
     expect(connectOverCDP).toHaveBeenNthCalledWith(
       1,
-      "ws://127.0.0.1:53210/devtools/browser/abc"
+      "ws://127.0.0.1:53210/devtools/browser/abc",
+      { timeout: 8000 }
     );
-    expect(connectOverCDP).toHaveBeenNthCalledWith(2, "http://127.0.0.1:53210");
+    expect(connectOverCDP).toHaveBeenNthCalledWith(2, "http://127.0.0.1:53210", {
+      timeout: 8000
+    });
     expect(connectOverCDP).toHaveBeenNthCalledWith(
       3,
-      "ws://127.0.0.1:53210/devtools/browser/abc"
+      "ws://127.0.0.1:53210/devtools/browser/abc",
+      { timeout: 8000 }
     );
-    expect(connectOverCDP).toHaveBeenNthCalledWith(4, "http://127.0.0.1:53210");
+    expect(connectOverCDP).toHaveBeenNthCalledWith(4, "http://127.0.0.1:53210", {
+      timeout: 8000
+    });
   });
 
   it("reports attempt count when all attempts exhaust", async () => {
@@ -170,7 +187,9 @@ describe("connectToStartedBrowser", () => {
       { maxAttempts: 1, retryDelayMs: 0 }
     );
     expect(result).toEqual({});
-    expect(connectOverCDP).toHaveBeenCalledWith("http://127.0.0.1:53210");
+    expect(connectOverCDP).toHaveBeenCalledWith("http://127.0.0.1:53210", {
+      timeout: 8000
+    });
   });
 });
 
@@ -204,6 +223,7 @@ describe("connectAutomation", () => {
   beforeEach(() => {
     connectOverCDP.mockReset();
     connectSeleniumMock.mockReset();
+    connectNativeCdpMock.mockReset();
   });
 
   it("calls connectSelenium when browser type is firefox", async () => {
@@ -234,5 +254,33 @@ describe("connectAutomation", () => {
     const s = settings("firefox");
 
     await expect(connectAutomation(started, s)).rejects.toThrow(/ws\.selenium|marionettePort/);
+  });
+
+  it("falls back to native CDP automation when Playwright CDP initialization times out", async () => {
+    const nativeAutomation = { close: vi.fn(), newPage: vi.fn() };
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Timeout 8000ms exceeded"))
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Timeout 8000ms exceeded"));
+    connectNativeCdpMock.mockResolvedValueOnce(nativeAutomation);
+
+    const started = {
+      profileId: "MAC_CHROME_PROFILE",
+      wsPuppeteer: "ws://127.0.0.1:54425/devtools/browser/abc",
+      debugPort: "54425",
+      raw: {}
+    };
+    const s = settings("chrome");
+
+    const result = await connectAutomation(started, s, {
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      connectTimeoutMs: 8000
+    });
+
+    expect(result).toBe(nativeAutomation);
+    expect(connectNativeCdpMock).toHaveBeenCalledWith(
+      started,
+      expect.objectContaining({ connectTimeoutMs: 8000 })
+    );
   });
 });
